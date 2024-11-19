@@ -110,6 +110,12 @@ func (a *Agent) RequestAuthorization(device dbus.ObjectPath) *dbus.Error {
 
 func (a *Agent) AuthorizeService(device dbus.ObjectPath, uuid string) *dbus.Error {
 	log.Printf("AuthorizeService (%s) from %s", uuid, device)
+
+	a.manager.mu.Lock()
+	a.manager.pairingInProgress = false
+	a.manager.pairingKey = ""
+	a.manager.mu.Unlock()
+
 	return nil
 }
 
