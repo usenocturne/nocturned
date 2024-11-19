@@ -6,10 +6,16 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/usenocturne/nocturned/bluetooth"
 )
 
 type InfoResponse struct {
 	Version string `json:"version"`
+}
+
+type ErrorResponse struct {
+	Error string `json:"error"`
 }
 
 func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -29,8 +35,12 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func main() {
-	var err error
-	btManager, err = InitBluetoothManager()
+	var (
+		btManager *bluetooth.BluetoothManager
+		err error
+	)
+
+	btManager, err = bluetooth.NewBluetoothManager()
 	if err != nil {
 		log.Fatal("Failed to initialize bluetooth manager:", err)
 	}
@@ -61,16 +71,19 @@ func main() {
 	// POST /bluetooth/discover/on
 	http.HandleFunc("/bluetooth/discover/on", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 
 		if err := btManager.SetDiscoverable(true); err != nil {
-			http.Error(w, "Failed to enable discoverable mode", http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to enable discoverable mode: " + err.Error()})
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
 		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	}))
 
 	// POST /bluetooth/discover/off
@@ -141,24 +154,28 @@ func main() {
 	// GET /bluetooth/info/{address}
 	http.HandleFunc("/bluetooth/info/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 
 		address := strings.TrimPrefix(r.URL.Path, "/bluetooth/info/")
 		if address == "" {
-			http.Error(w, "Bluetooth address is required", http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Bluetooth address is required"})
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
 		info, err := btManager.GetDeviceInfo(address)
 		if err != nil {
-			http.Error(w, "Failed to get device info: "+err.Error(), http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to get device info: " + err.Error()})
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
 		if err := json.NewEncoder(w).Encode(info); err != nil {
-			http.Error(w, "Error encoding response", http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Error encoding response: " + err.Error()})
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 	}))

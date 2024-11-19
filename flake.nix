@@ -4,9 +4,13 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    gomod2nix = {
+      url = "github:nix-community/gomod2nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, gomod2nix }:
     let
       nixosModule = { config, lib, pkgs, ... }:
         let cfg = config.services.nocturned;
@@ -24,36 +28,20 @@
             systemd.services.nocturned = {
               description = "Nocturne daemon";
               wantedBy = [ "multi-user.target" ];
-              after = [ "network.target" ];
-              
+              requires = [ "dbus.service" ];
+              after = [ "dbus.service" ];
+
               serviceConfig = {
                 ExecStart = "${self.packages.${pkgs.system}.default}/bin/nocturned";
                 Environment = [ "PORT=${toString cfg.port}" ];
-                DynamicUser = true;
-                RuntimeDirectory = "nocturne";
-                RuntimeDirectoryMode = "0755";
-                StateDirectory = "nocturne";
-                StateDirectoryMode = "0700";
-                CacheDirectory = "nocturne";
-                CacheDirectoryMode = "0750";
+
+                User = "root";
+                Group = "wheel";
+
                 Restart = "on-failure";
-                
-                CapabilityBoundingSet = "";
-                DevicePolicy = "closed";
-                NoNewPrivileges = true;
-                PrivateDevices = true;
-                PrivateTmp = true;
-                ProtectSystem = "strict";
-                ProtectHome = true;
-                RestrictAddressFamilies = [ "AF_INET" "AF_INET6" ];
-                RestrictNamespaces = true;
-                RestrictRealtime = true;
-                RestrictSUIDSGID = true;
-                ProtectKernelTunables = true;
-                ProtectKernelModules = true;
-                ProtectControlGroups = true;
-                
-                ReadOnlyPaths = [ "/etc/nocturne" ];
+                RestartSec = "5s";
+
+                # ReadOnlyPaths = [ "/etc/nocturne" ];
               };
             };
           };
@@ -62,14 +50,16 @@
     (flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        buildGoApplication = gomod2nix.legacyPackages.${system}.buildGoApplication;
       in
       {
-        packages.default = pkgs.buildGoModule {
-          pname = "nocturned";
+        packages.default = buildGoApplication {
+          name = "nocturned";
           version = "1.0.0";
-          src = ./.;
+          go = pkgs.go_1_22;
 
-          vendorHash = null;
+          src = ./.;
+          pwd = ./.;
 
           meta = with pkgs.lib; {
             description = "Nocturne daemon";
@@ -80,9 +70,10 @@
 
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
-            go
+            go_1_22
             gopls
             go-tools
+            gomod2nix.packages.${system}.default
           ];
         };
       })) // {
