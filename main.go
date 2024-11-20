@@ -3,12 +3,14 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/usenocturne/nocturned/bluetooth"
+	"github.com/vishvananda/netlink"
 )
 
 type InfoResponse struct {
@@ -203,6 +205,24 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	}))
 
+	// GET /bluetooth/network
+	http.HandleFunc("/bluetooth/network", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		link, err := netlink.LinkByName("bnep0")
+		if err != nil || link.Attrs().Flags&net.FlagUp == 0 {
+			json.NewEncoder(w).Encode(map[string]string{"status": "down"})
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]string{"status": "up"})
+		w.WriteHeader(http.StatusOK)
+	}))
+
 	// POST /bluetooth/network/{address}
 	http.HandleFunc("/bluetooth/network/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
@@ -226,6 +246,32 @@ func main() {
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	}))
+
+	// GET /bluetooth/devices
+	http.HandleFunc("/bluetooth/devices", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		devices, err := btManager.GetConnectedDevices()
+		if err != nil {
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to get connected devices: " + err.Error()})
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		if devices == nil {
+			devices = []bluetooth.BluetoothDeviceInfo{}
+		}
+
+		if err := json.NewEncoder(w).Encode(devices); err != nil {
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Error encoding response: " + err.Error()})
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 	}))
 
 	port := os.Getenv("PORT")

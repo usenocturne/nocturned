@@ -344,3 +344,40 @@ func (m *BluetoothManager) ConnectNetwork(address string) error {
 
 	return nil
 }
+
+func (m *BluetoothManager) GetConnectedDevices() ([]BluetoothDeviceInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var connectedDevices []BluetoothDeviceInfo
+
+	objects := make(map[dbus.ObjectPath]map[string]map[string]dbus.Variant)
+	obj := m.conn.Object(BLUEZ_BUS_NAME, "/")
+	if err := obj.Call("org.freedesktop.DBus.ObjectManager.GetManagedObjects", 0).Store(&objects); err != nil {
+		return nil, fmt.Errorf("failed to get managed objects: %v", err)
+	}
+
+	for path, interfaces := range objects {
+		if deviceProps, ok := interfaces[BLUEZ_DEVICE_INTERFACE]; ok {
+			if connected, ok := deviceProps["Connected"]; ok && connected.Value().(bool) {
+				address := strings.TrimPrefix(string(path), string(m.adapter)+"/dev_")
+				address = strings.ReplaceAll(address, "_", ":")
+
+				deviceInfo := BluetoothDeviceInfo{
+					Address: address,
+				}
+
+				if v, ok := deviceProps["Name"]; ok {
+					deviceInfo.Name = v.Value().(string)
+				}
+				if v, ok := deviceProps["Alias"]; ok {
+					deviceInfo.Alias = v.Value().(string)
+				}
+
+				connectedDevices = append(connectedDevices, deviceInfo)
+			}
+		}
+	}
+
+	return connectedDevices, nil
+}
