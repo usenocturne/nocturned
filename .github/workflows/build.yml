@@ -25,8 +25,11 @@ jobs:
             substituters = https://nix-community.cachix.org https://cache.nixos.org https://attic.svrd.me/nocturne
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check Nix flake
+        run: nix flake check
+
       - name: Build nocturned
-        run: nix develop --command "GOOS=linux GOARCH=arm64 go build"
+        run: nix build
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
