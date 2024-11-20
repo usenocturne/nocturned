@@ -1,0 +1,37 @@
+name: Build nocturned
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    paths-ignore:
+      - '**/README.md'
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            trusted-public-keys = nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nocturne:C3rx7XJOGGbybHbYZ+Y2ucq5yavdjRD7K3Me0oirsTY=
+            trusted-substituters = https://nix-community.cachix.org https://cache.nixos.org https://attic.svrd.me/nocturne
+            substituters = https://nix-community.cachix.org https://cache.nixos.org https://attic.svrd.me/nocturne
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build nocturned
+        run: nix develop --command "GOOS=linux GOARCH=arm64 go build"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nocturned
+          path: result/bin/nocturned
+          compression-level: 9
+          if-no-files-found: error
