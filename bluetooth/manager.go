@@ -9,63 +9,22 @@ import (
 	"syscall"
 
 	"github.com/godbus/dbus/v5"
-	"github.com/gorilla/websocket"
 	"github.com/vishvananda/netlink"
+
+	"github.com/usenocturne/nocturned/utils"
+	"github.com/usenocturne/nocturned/ws"
 )
 
 type BluetoothManager struct {
-	conn             *dbus.Conn
-	adapter          dbus.ObjectPath
-	agent            *Agent
-	mu               sync.Mutex
-	pairingRequests  chan PairingRequest
-	wsClients        *WebSocketHub
+	conn            *dbus.Conn
+	adapter         dbus.ObjectPath
+	agent           *Agent
+	mu              sync.Mutex
+	pairingRequests chan utils.PairingRequest
+	wsHub           *ws.WebSocketHub
 }
 
-type WebSocketHub struct {
-	clients map[*websocket.Conn]bool
-	mu      sync.Mutex
-}
-
-func NewWebSocketHub() *WebSocketHub {
-	return &WebSocketHub{
-		clients: make(map[*websocket.Conn]bool),
-	}
-}
-
-func (m *BluetoothManager) InitializeWebSocketHub() *WebSocketHub {
-	m.wsClients = NewWebSocketHub()
-	return m.wsClients
-}
-
-func (h *WebSocketHub) AddClient(conn *websocket.Conn) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.clients[conn] = true
-}
-
-func (h *WebSocketHub) RemoveClient(conn *websocket.Conn) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if _, ok := h.clients[conn]; ok {
-		delete(h.clients, conn)
-		conn.Close()
-	}
-}
-
-func (h *WebSocketHub) Broadcast(event WebSocketEvent) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	for conn := range h.clients {
-		if err := conn.WriteJSON(event); err != nil {
-			log.Printf("Error broadcasting to client: %v", err)
-			h.RemoveClient(conn)
-		}
-	}
-}
-
-func NewBluetoothManager() (*BluetoothManager, error) {
+func NewBluetoothManager(wsHub *ws.WebSocketHub) (*BluetoothManager, error) {
 	conn, err := dbus.SystemBus()
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to system bus: %v", err)
@@ -81,7 +40,8 @@ func NewBluetoothManager() (*BluetoothManager, error) {
 	manager := &BluetoothManager{
 		conn:            conn,
 		adapter:         adapter,
-		pairingRequests: make(chan PairingRequest, 1),
+		pairingRequests: make(chan utils.PairingRequest, 1),
+		wsHub:           wsHub,
 	}
 
 	agent, err := NewAgent(conn, manager)
@@ -174,10 +134,10 @@ func (m *BluetoothManager) monitorDisconnects() {
 						address := strings.TrimPrefix(devicePath, string(m.adapter)+"/dev_")
 						address = strings.ReplaceAll(address, "_", ":")
 
-						if m.wsClients != nil {
-							m.wsClients.Broadcast(WebSocketEvent{
+						if m.wsHub != nil {
+							m.wsHub.Broadcast(utils.WebSocketEvent{
 								Type: "bluetooth/disconnect",
-								Payload: DeviceDisconnectedPayload{
+								Payload: utils.DeviceDisconnectedPayload{
 									Address: address,
 								},
 							})
@@ -202,7 +162,7 @@ func (m *BluetoothManager) monitorNetworkInterfaces() {
 	done := make(chan struct{})
 
 	if err := netlink.LinkSubscribe(linkUpdates, done); err != nil {
-		log.Printf("Failed to subscrib to link updates: %v", err)
+		log.Printf("Failed to subscribe to link updates: %v", err)
 		return
 	}
 
@@ -211,8 +171,8 @@ func (m *BluetoothManager) monitorNetworkInterfaces() {
 			if update.Header.Type == syscall.RTM_DELLINK && update.Link.Attrs().Name == "bnep0" {
 				log.Println("bnep0 interface removed")
 
-				if m.wsClients != nil {
-					m.wsClients.Broadcast(WebSocketEvent{
+				if m.wsHub != nil {
+					m.wsHub.Broadcast(utils.WebSocketEvent{
 						Type: "bluetooth/network/disconnect",
 					})
 				}
@@ -247,7 +207,7 @@ func formatDevicePath(adapter dbus.ObjectPath, address string) dbus.ObjectPath {
 	return dbus.ObjectPath(fmt.Sprintf("%s/dev_%s", adapter, formattedAddress))
 }
 
-func (m *BluetoothManager) GetDeviceInfo(address string) (*BluetoothDeviceInfo, error) {
+func (m *BluetoothManager) GetDeviceInfo(address string) (*utils.BluetoothDeviceInfo, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -259,7 +219,7 @@ func (m *BluetoothManager) GetDeviceInfo(address string) (*BluetoothDeviceInfo, 
 		return nil, err
 	}
 
-	info := &BluetoothDeviceInfo{
+	info := &utils.BluetoothDeviceInfo{
 		Address: address,
 	}
 
@@ -319,7 +279,7 @@ func (m *BluetoothManager) DenyPairing() error {
 	return m.agent.RejectPairing()
 }
 
-func (m *BluetoothManager) GetCurrentPairingRequest() *PairingRequest {
+func (m *BluetoothManager) GetCurrentPairingRequest() *utils.PairingRequest {
 	if m.agent == nil {
 		return nil
 	}
@@ -345,11 +305,11 @@ func (m *BluetoothManager) ConnectNetwork(address string) error {
 	return nil
 }
 
-func (m *BluetoothManager) GetConnectedDevices() ([]BluetoothDeviceInfo, error) {
+func (m *BluetoothManager) GetConnectedDevices() ([]utils.BluetoothDeviceInfo, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var connectedDevices []BluetoothDeviceInfo
+	var connectedDevices []utils.BluetoothDeviceInfo
 
 	objects := make(map[dbus.ObjectPath]map[string]map[string]dbus.Variant)
 	obj := m.conn.Object(BLUEZ_BUS_NAME, "/")
@@ -363,7 +323,7 @@ func (m *BluetoothManager) GetConnectedDevices() ([]BluetoothDeviceInfo, error) 
 				address := strings.TrimPrefix(string(path), string(m.adapter)+"/dev_")
 				address = strings.ReplaceAll(address, "_", ":")
 
-				deviceInfo := BluetoothDeviceInfo{
+				deviceInfo := utils.BluetoothDeviceInfo{
 					Address: address,
 				}
 

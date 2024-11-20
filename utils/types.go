@@ -1,5 +1,6 @@
-package bluetooth
+package utils
 
+// Bluetooth
 type BluetoothDeviceInfo struct {
 	Address          string `json:"address"`
 	Name             string `json:"name"`
@@ -20,6 +21,8 @@ type PairingRequest struct {
 	RequestType string
 }
 
+
+// WebSocket
 type WebSocketEvent struct {
 	Type    string      `json:"type"`
 	Payload interface{} `json:"payload"`

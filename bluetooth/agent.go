@@ -7,13 +7,15 @@ import (
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
+
+	"github.com/usenocturne/nocturned/utils"
 )
 
 type Agent struct {
 	conn    *dbus.Conn
 	manager *BluetoothManager
 	path    dbus.ObjectPath
-	current *PairingRequest
+	current *utils.PairingRequest
 }
 
 func NewAgent(conn *dbus.Conn, manager *BluetoothManager) (*Agent, error) {
@@ -59,19 +61,19 @@ func (a *Agent) RequestConfirmation(device dbus.ObjectPath, passkey uint32) *dbu
 	log.Printf("RequestConfirmation (%d) from %s", passkey, device)
 
 	passkeyStr := fmt.Sprintf("%06d", passkey)
-	a.current = &PairingRequest{
+	a.current = &utils.PairingRequest{
 		Device:      string(device),
 		Passkey:     passkeyStr,
 		RequestType: "confirmation",
 	}
 
-	if a.manager.wsClients != nil {
+	if a.manager.wsHub != nil {
 		address := strings.TrimPrefix(string(device), string(a.manager.adapter)+"/dev_")
 		address = strings.ReplaceAll(address, "_", ":")
 
-		a.manager.wsClients.Broadcast(WebSocketEvent{
+		a.manager.wsHub.Broadcast(utils.WebSocketEvent{
 			Type: "bluetooth/pairing",
-			Payload: PairingStartedPayload{
+			Payload: utils.PairingStartedPayload{
 				Address:    address,
 				PairingKey: passkeyStr,
 			},
@@ -97,16 +99,16 @@ func (a *Agent) AcceptPairing() error {
 	deviceInfo, err := a.manager.GetDeviceInfo(address)
 	if err != nil {
 		log.Printf("Error getting device info after pairing: %v", err)
-		deviceInfo = &BluetoothDeviceInfo{
+		deviceInfo = &utils.BluetoothDeviceInfo{
 			Address: address,
 			Paired:  true,
 		}
 	}
 
-	if a.manager.wsClients != nil {
-		a.manager.wsClients.Broadcast(WebSocketEvent{
+	if a.manager.wsHub != nil {
+		a.manager.wsHub.Broadcast(utils.WebSocketEvent{
 			Type: "bluetooth/paired",
-			Payload: DevicePairedPayload{
+			Payload: utils.DevicePairedPayload{
 				Device: deviceInfo,
 			},
 		})
@@ -128,13 +130,13 @@ func (a *Agent) RejectPairing() error {
 func (a *Agent) Cancel() *dbus.Error {
 	log.Println("Pairing cancelled")
 
-	if a.current != nil && a.manager.wsClients != nil {
+	if a.current != nil && a.manager.wsHub != nil {
 		address := strings.TrimPrefix(a.current.Device, string(a.manager.adapter)+"/dev_")
 		address = strings.ReplaceAll(address, "_", ":")
 
-		a.manager.wsClients.Broadcast(WebSocketEvent{
+		a.manager.wsHub.Broadcast(utils.WebSocketEvent{
 			Type: "bluetooth/pairing/cancelled",
-			Payload: DeviceDisconnectedPayload{
+			Payload: utils.DeviceDisconnectedPayload{
 				Address: address,
 			},
 		})

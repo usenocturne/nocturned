@@ -9,8 +9,12 @@ import (
 	"strings"
 
 	"github.com/gorilla/websocket"
-	"github.com/usenocturne/nocturned/bluetooth"
 	"github.com/vishvananda/netlink"
+
+	"github.com/usenocturne/nocturned/bluetooth"
+	"github.com/usenocturne/nocturned/ota"
+	"github.com/usenocturne/nocturned/utils"
+	"github.com/usenocturne/nocturned/ws"
 )
 
 type InfoResponse struct {
@@ -44,17 +48,14 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func main() {
-	var (
-		btManager *bluetooth.BluetoothManager
-		err error
-	)
+	wsHub := ws.NewWebSocketHub()
 
-	btManager, err = bluetooth.NewBluetoothManager()
+	btManager, err := bluetooth.NewBluetoothManager(wsHub)
 	if err != nil {
 		log.Fatal("Failed to initialize bluetooth manager:", err)
 	}
 
-	clients := btManager.InitializeWebSocketHub()
+	otaUpdater := ota.NewOTAUpdater(wsHub)
 
 	// WebSockets
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +64,7 @@ func main() {
 			log.Printf("Failed to upgrade connection: %v", err)
 			return
 		}
-		clients.AddClient(conn)
+		wsHub.AddClient(conn)
 	})
 
 	// GET /info
@@ -264,7 +265,7 @@ func main() {
 		}
 
 		if devices == nil {
-			devices = []bluetooth.BluetoothDeviceInfo{}
+			devices = []utils.BluetoothDeviceInfo{}
 		}
 
 		if err := json.NewEncoder(w).Encode(devices); err != nil {
@@ -272,6 +273,53 @@ func main() {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+	}))
+
+	// POST /ota/download
+	http.HandleFunc("/ota/download", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		var requestData struct {
+			URL string `json:"url"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Invalid request body"})
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		go func() {
+			if err := otaUpdater.Download(requestData.URL); err != nil {
+				wsHub.Broadcast(utils.WebSocketEvent{
+					Type:    "ota/download/error",
+					Payload: err.Error(),
+				})
+			}
+		}()
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	// POST /ota/deploy
+	http.HandleFunc("/ota/deploy", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		if err := otaUpdater.Deploy(); err != nil {
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "OTA update failed: " + err.Error()})
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
 	}))
 
 	port := os.Getenv("PORT")
