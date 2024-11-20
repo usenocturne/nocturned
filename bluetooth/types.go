@@ -7,7 +7,6 @@ type BluetoothDeviceInfo struct {
 	Class            string `json:"class"`
 	Icon             string `json:"icon"`
 	Paired           bool   `json:"paired"`
-	Bonded           bool   `json:"bonded"`
 	Trusted          bool   `json:"trusted"`
 	Blocked          bool   `json:"blocked"`
 	Connected        bool   `json:"connected"`
@@ -19,4 +18,22 @@ type PairingRequest struct {
 	Device     string
 	Passkey    string
 	RequestType string
+}
+
+type WebSocketEvent struct {
+	Type    string      `json:"type"`
+	Payload interface{} `json:"payload"`
+}
+
+type PairingStartedPayload struct {
+	Address    string `json:"address"`
+	PairingKey string `json:"pairingKey"`
+}
+
+type DeviceDisconnectedPayload struct {
+	Address string `json:"address"`
+}
+
+type DevicePairedPayload struct {
+    Device *BluetoothDeviceInfo `json:"device"`
 }

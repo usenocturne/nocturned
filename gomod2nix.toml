@@ -4,3 +4,6 @@ schema = 3
   [mod."github.com/godbus/dbus/v5"]
     version = "v5.1.0"
     hash = "sha256-xOCMJpQK3KTmHTPn/CdqI4j0eENCtMmJDgAIoYqYOEY="
+  [mod."github.com/gorilla/websocket"]
+    version = "v1.5.3"
+    hash = "sha256-vTIGEFMEi+30ZdO6ffMNJ/kId6pZs5bbyqov8xe9BM0="

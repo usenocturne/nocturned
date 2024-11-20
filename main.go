@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/gorilla/websocket"
 	"github.com/usenocturne/nocturned/bluetooth"
 )
 
@@ -16,6 +17,12 @@ type InfoResponse struct {
 
 type ErrorResponse struct {
 	Error string `json:"error"`
+}
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
 }
 
 func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -44,6 +51,18 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to initialize bluetooth manager:", err)
 	}
+
+	clients := btManager.InitializeWebSocketHub()
+
+	// WebSockets
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("Failed to upgrade connection: %v", err)
+			return
+		}
+		clients.AddClient(conn)
+	})
 
 	// GET /info
 	http.HandleFunc("/info", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -99,26 +118,6 @@ func main() {
 		}
 
 		w.WriteHeader(http.StatusOK)
-	}))
-
-	// GET /bluetooth/pairing/inProgress
-	http.HandleFunc("/bluetooth/pairing/inProgress", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		json.NewEncoder(w).Encode(map[string]bool{"inProgress": btManager.IsPairingInProgress()})
-	}))
-
-	// GET /bluetooth/pairing/pairingKey
-	http.HandleFunc("/bluetooth/pairing/pairingKey", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		json.NewEncoder(w).Encode(map[string]string{"key": btManager.GetPairingKey()})
 	}))
 
 	// POST /bluetooth/pairing/accept

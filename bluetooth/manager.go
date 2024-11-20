@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/gorilla/websocket"
 )
 
 type BluetoothManager struct {
@@ -15,8 +16,50 @@ type BluetoothManager struct {
 	agent            *Agent
 	mu               sync.Mutex
 	pairingRequests  chan PairingRequest
-	pairingInProgress bool
-	pairingKey        string
+	wsClients        *WebSocketHub
+}
+
+type WebSocketHub struct {
+	clients map[*websocket.Conn]bool
+	mu      sync.Mutex
+}
+
+func NewWebSocketHub() *WebSocketHub {
+	return &WebSocketHub{
+		clients: make(map[*websocket.Conn]bool),
+	}
+}
+
+func (m *BluetoothManager) InitializeWebSocketHub() *WebSocketHub {
+	m.wsClients = NewWebSocketHub()
+	return m.wsClients
+}
+
+func (h *WebSocketHub) AddClient(conn *websocket.Conn) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.clients[conn] = true
+}
+
+func (h *WebSocketHub) RemoveClient(conn *websocket.Conn) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.clients[conn]; ok {
+		delete(h.clients, conn)
+		conn.Close()
+	}
+}
+
+func (h *WebSocketHub) Broadcast(event WebSocketEvent) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for conn := range h.clients {
+		if err := conn.WriteJSON(event); err != nil {
+			log.Printf("Error broadcasting to client: %v", err)
+			h.RemoveClient(conn)
+		}
+	}
 }
 
 func NewBluetoothManager() (*BluetoothManager, error) {
@@ -124,12 +167,22 @@ func (m *BluetoothManager) monitorDisconnects() {
 				if connected, ok := changes["Connected"]; ok {
 					if !connected.Value().(bool) {
 						devicePath := string(signal.Path)
+						address := strings.TrimPrefix(devicePath, string(m.adapter)+"/dev_")
+						address = strings.ReplaceAll(address, "_", ":")
+
+						if m.wsClients != nil {
+							m.wsClients.Broadcast(WebSocketEvent{
+								Type: "bluetooth/disconnect",
+								Payload: DeviceDisconnectedPayload{
+									Address: address,
+								},
+							})
+						}
+
 						log.Printf("Device disconnected: %s", devicePath)
 
 						if m.agent != nil && m.agent.current != nil && m.agent.current.Device == devicePath {
 							m.mu.Lock()
-							m.pairingInProgress = false
-							m.pairingKey = ""
 							m.agent.current = nil
 							m.mu.Unlock()
 						}
@@ -228,18 +281,6 @@ func (m *BluetoothManager) RemoveDevice(address string) error {
 	obj := m.conn.Object(BLUEZ_BUS_NAME, m.adapter)
 
 	return obj.Call(BLUEZ_ADAPTER_INTERFACE+".RemoveDevice", 0, devicePath).Err
-}
-
-func (m *BluetoothManager) IsPairingInProgress() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.pairingInProgress
-}
-
-func (m *BluetoothManager) GetPairingKey() string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.pairingKey
 }
 
 func (m *BluetoothManager) AcceptPairing() error {

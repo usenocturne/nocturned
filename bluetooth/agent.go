@@ -3,6 +3,7 @@ package bluetooth
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
@@ -54,51 +55,28 @@ func (a *Agent) Release() *dbus.Error {
 	return nil
 }
 
-func (a *Agent) RequestPinCode(device dbus.ObjectPath) (string, *dbus.Error) {
-	log.Printf("RequestPinCode from %s", device)
-	return "", dbus.NewError("org.bluez.Error.Rejected", nil)
-}
-
-func (a *Agent) DisplayPinCode(device dbus.ObjectPath, pincode string) *dbus.Error {
-	log.Printf("DisplayPinCode (%s) from %s", pincode, device)
-
-	a.manager.mu.Lock()
-	a.manager.pairingInProgress = true
-	a.manager.pairingKey = pincode
-	a.manager.mu.Unlock()
-
-	return nil
-}
-
-func (a *Agent) RequestPasskey(device dbus.ObjectPath) (uint32, *dbus.Error) {
-	log.Printf("RequestPasskey from %s", device)
-	return 0, dbus.NewError("org.bluez.Error.Rejected", nil)
-}
-
-func (a *Agent) DisplayPasskey(device dbus.ObjectPath, passkey uint32, entered uint16) *dbus.Error {
-	log.Printf("DisplayPasskey (%d entered %d) from %s", passkey, entered, device)
-
-	a.manager.mu.Lock()
-	a.manager.pairingInProgress = true
-	a.manager.pairingKey = fmt.Sprintf("%d", passkey)
-	a.manager.mu.Unlock()
-
-	return nil
-}
-
 func (a *Agent) RequestConfirmation(device dbus.ObjectPath, passkey uint32) *dbus.Error {
 	log.Printf("RequestConfirmation (%d) from %s", passkey, device)
 
+	passkeyStr := fmt.Sprintf("%06d", passkey)
 	a.current = &PairingRequest{
 		Device:      string(device),
-		Passkey:     fmt.Sprintf("%06d", passkey),
+		Passkey:     passkeyStr,
 		RequestType: "confirmation",
 	}
 
-	a.manager.mu.Lock()
-	a.manager.pairingInProgress = true
-	a.manager.pairingKey = a.current.Passkey
-	a.manager.mu.Unlock()
+	if a.manager.wsClients != nil {
+		address := strings.TrimPrefix(string(device), string(a.manager.adapter)+"/dev_")
+		address = strings.ReplaceAll(address, "_", ":")
+
+		a.manager.wsClients.Broadcast(WebSocketEvent{
+			Type: "bluetooth/pairing",
+			Payload: PairingStartedPayload{
+				Address:    address,
+				PairingKey: passkeyStr,
+			},
+		})
+	}
 
 	return nil
 }
@@ -108,40 +86,33 @@ func (a *Agent) RequestAuthorization(device dbus.ObjectPath) *dbus.Error {
 	return nil
 }
 
-func (a *Agent) AuthorizeService(device dbus.ObjectPath, uuid string) *dbus.Error {
-	log.Printf("AuthorizeService (%s) from %s", uuid, device)
-
-	a.manager.mu.Lock()
-	a.manager.pairingInProgress = false
-	a.manager.pairingKey = ""
-	a.manager.mu.Unlock()
-
-	return nil
-}
-
-func (a *Agent) Cancel() *dbus.Error {
-	log.Println("Request canceled")
-
-	a.manager.mu.Lock()
-	a.manager.pairingInProgress = false
-	a.manager.pairingKey = ""
-	a.manager.mu.Unlock()
-
-	return nil
-}
-
 func (a *Agent) AcceptPairing() error {
 	if a.current == nil {
 		return fmt.Errorf("no pairing request in progress")
 	}
 
+	address := strings.TrimPrefix(a.current.Device, string(a.manager.adapter)+"/dev_")
+	address = strings.ReplaceAll(address, "_", ":")
+
+	deviceInfo, err := a.manager.GetDeviceInfo(address)
+	if err != nil {
+		log.Printf("Error getting device info after pairing: %v", err)
+		deviceInfo = &BluetoothDeviceInfo{
+			Address: address,
+			Paired:  true,
+		}
+	}
+
+	if a.manager.wsClients != nil {
+		a.manager.wsClients.Broadcast(WebSocketEvent{
+			Type: "bluetooth/paired",
+			Payload: DevicePairedPayload{
+				Device: deviceInfo,
+			},
+		})
+	}
+
 	a.current = nil
-
-	a.manager.mu.Lock()
-	a.manager.pairingInProgress = false
-	a.manager.pairingKey = ""
-	a.manager.mu.Unlock()
-
 	return nil
 }
 
@@ -151,11 +122,24 @@ func (a *Agent) RejectPairing() error {
 	}
 
 	a.current = nil
+	return nil
+}
 
-	a.manager.mu.Lock()
-	a.manager.pairingInProgress = false
-	a.manager.pairingKey = ""
-	a.manager.mu.Unlock()
+func (a *Agent) Cancel() *dbus.Error {
+	log.Println("Pairing cancelled")
 
+	if a.current != nil && a.manager.wsClients != nil {
+		address := strings.TrimPrefix(a.current.Device, string(a.manager.adapter)+"/dev_")
+		address = strings.ReplaceAll(address, "_", ":")
+
+		a.manager.wsClients.Broadcast(WebSocketEvent{
+			Type: "bluetooth/pairing/cancelled",
+			Payload: DeviceDisconnectedPayload{
+				Address: address,
+			},
+		})
+	}
+
+	a.current = nil
 	return nil
 }
