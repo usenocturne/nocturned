@@ -53,7 +53,7 @@
         buildGoApplication = gomod2nix.legacyPackages.${system}.buildGoApplication;
       in
       {
-        packages.default = (buildGoApplication {
+        packages.default = buildGoApplication {
           name = "nocturned";
           version = "1.0.0";
           go = pkgs.go_1_22;
@@ -66,7 +66,7 @@
             homepage = "https://github.com/usenocturne/nocturned";
             license = licenses.mit;
           };
-        }).overrideAttrs (old: old // { GOOS = "linux"; GOARCH = "arm64"; });
+        };
 
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [

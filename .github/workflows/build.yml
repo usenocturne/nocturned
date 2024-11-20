@@ -29,7 +29,7 @@ jobs:
         run: nix flake check
 
       - name: Build nocturned
-        run: nix build
+        run: GOOS=linux GOARCH=arm64 go build
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
