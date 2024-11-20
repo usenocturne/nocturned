@@ -3,11 +3,14 @@ package bluetooth
 import (
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/gorilla/websocket"
+	"github.com/vishvananda/netlink"
 )
 
 type BluetoothManager struct {
@@ -92,6 +95,7 @@ func NewBluetoothManager() (*BluetoothManager, error) {
 	}
 
 	manager.monitorDisconnects()
+	manager.monitorNetworkInterfaces()
 
 	return manager, nil
 }
@@ -187,6 +191,30 @@ func (m *BluetoothManager) monitorDisconnects() {
 							m.mu.Unlock()
 						}
 					}
+				}
+			}
+		}
+	}()
+}
+
+func (m *BluetoothManager) monitorNetworkInterfaces() {
+	linkUpdates := make(chan netlink.LinkUpdate)
+	done := make(chan struct{})
+
+	if err := netlink.LinkSubscribe(linkUpdates, done); err != nil {
+		log.Printf("Failed to subscrib to link updates: %v", err)
+		return
+	}
+
+	go func() {
+		for update := range linkUpdates {
+			if update.Header.Type == syscall.RTM_DELLINK && update.Link.Attrs().Name == "bnep0" {
+				log.Println("bnep0 interface removed")
+
+				if m.wsClients != nil {
+					m.wsClients.Broadcast(WebSocketEvent{
+						Type: "bluetooth/network/disconnect",
+					})
 				}
 			}
 		}
@@ -296,4 +324,23 @@ func (m *BluetoothManager) GetCurrentPairingRequest() *PairingRequest {
 		return nil
 	}
 	return m.agent.current
+}
+
+func (m *BluetoothManager) ConnectNetwork(address string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	devicePath := formatDevicePath(m.adapter, address)
+	obj := m.conn.Object(BLUEZ_BUS_NAME, devicePath)
+
+	if err := obj.Call("org.bluez.Network1.Connect", 0, "nap").Err; err != nil {
+		return err
+	}
+
+	link, err := netlink.LinkByName("bnep0")
+	if err != nil || link.Attrs().Flags&net.FlagUp == 0 {
+		return fmt.Errorf("bnep0 interface is not up")
+	}
+
+	return nil
 }

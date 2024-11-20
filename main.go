@@ -182,22 +182,50 @@ func main() {
 	// POST /bluetooth/remove/{address}
 	http.HandleFunc("/bluetooth/remove/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 
 		address := strings.TrimPrefix(r.URL.Path, "/bluetooth/remove/")
 		if address == "" {
-			http.Error(w, "Bluetooth address is required", http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Bluetooth address is required"})
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
 		if err := btManager.RemoveDevice(address); err != nil {
-			http.Error(w, "Failed to remove device", http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to remove device: " + err.Error()})
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
 		w.WriteHeader(http.StatusOK)
+	}))
+
+	// POST /bluetooth/network/{address}
+	http.HandleFunc("/bluetooth/network/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		address := strings.TrimPrefix(r.URL.Path, "/bluetooth/network/")
+		if address == "" {
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Bluetooth address is required"})
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		if err := btManager.ConnectNetwork(address); err != nil {
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to connect to Bluetooth network: " + err.Error()})
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	}))
 
 	port := os.Getenv("PORT")
