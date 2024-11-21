@@ -82,8 +82,16 @@ func (o *OTAUpdater) Deploy() error {
 	if err := unzip("/tmp/update.zip", "/tmp/update"); err != nil {
 		return err
 	}
+	os.Remove("/tmp/update.zip")
 
-	setCmd := exec.Command("nix-env", "-p", "/nix/var/nix/profiles/system", "--set", "/tmp/update")
+	addCmd := exec.Command("/run/current-system/sw/bin/nix-store", "--add", "/tmp/update")
+	storePathBytes, err := addCmd.Output()
+	if err != nil {
+		return err
+	}
+	storePath := strings.TrimSpace(string(storePathBytes))
+
+	setCmd := exec.Command("/run/current-system/sw/bin/nix-env", "-p", "/nix/var/nix/profiles/system", "--set", storePath)
 	setCmd.Stdout = os.Stdout
 	setCmd.Stderr = os.Stderr
 	if err := setCmd.Run(); err != nil {
@@ -93,7 +101,12 @@ func (o *OTAUpdater) Deploy() error {
 	switchCmd := exec.Command("/nix/var/nix/profiles/system/bin/switch-to-configuration", "switch")
 	switchCmd.Stdout = os.Stdout
 	switchCmd.Stderr = os.Stderr
-	return switchCmd.Run()
+	if err := switchCmd.Run(); err != nil {
+		return err
+	}
+
+	os.RemoveAll("/tmp/update")
+	return nil
 }
 
 func unzip(src, dest string) error {
