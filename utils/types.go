@@ -40,3 +40,7 @@ type DeviceDisconnectedPayload struct {
 type DevicePairedPayload struct {
     Device *BluetoothDeviceInfo `json:"device"`
 }
+
+type NetworkConnectedPayload struct {
+	Address string `json:"address"`
+}

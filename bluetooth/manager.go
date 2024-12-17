@@ -302,6 +302,15 @@ func (m *BluetoothManager) ConnectNetwork(address string) error {
 		return fmt.Errorf("bnep0 interface is not up")
 	}
 
+	if m.wsHub != nil {
+		m.wsHub.Broadcast(utils.WebSocketEvent{
+			Type: "bluetooth/network/connect",
+			Payload: utils.NetworkConnectedPayload{
+				Address: address,
+			},
+		})
+	}
+
 	return nil
 }
 
