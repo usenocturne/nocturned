@@ -257,9 +257,9 @@ func main() {
 			return
 		}
 
-		devices, err := btManager.GetConnectedDevices()
+		devices, err := btManager.GetDevices()
 		if err != nil {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to get connected devices: " + err.Error()})
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to get devices: " + err.Error()})
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
