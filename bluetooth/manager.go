@@ -314,11 +314,11 @@ func (m *BluetoothManager) ConnectNetwork(address string) error {
 	return nil
 }
 
-func (m *BluetoothManager) GetConnectedDevices() ([]utils.BluetoothDeviceInfo, error) {
+func (m *BluetoothManager) GetDevices() ([]utils.BluetoothDeviceInfo, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var connectedDevices []utils.BluetoothDeviceInfo
+	var devices []utils.BluetoothDeviceInfo
 
 	objects := make(map[dbus.ObjectPath]map[string]map[string]dbus.Variant)
 	obj := m.conn.Object(BLUEZ_BUS_NAME, "/")
@@ -328,25 +328,50 @@ func (m *BluetoothManager) GetConnectedDevices() ([]utils.BluetoothDeviceInfo, e
 
 	for path, interfaces := range objects {
 		if deviceProps, ok := interfaces[BLUEZ_DEVICE_INTERFACE]; ok {
-			if connected, ok := deviceProps["Connected"]; ok && connected.Value().(bool) {
-				address := strings.TrimPrefix(string(path), string(m.adapter)+"/dev_")
-				address = strings.ReplaceAll(address, "_", ":")
+			address := strings.TrimPrefix(string(path), string(m.adapter)+"/dev_")
+			address = strings.ReplaceAll(address, "_", ":")
 
-				deviceInfo := utils.BluetoothDeviceInfo{
-					Address: address,
-				}
-
-				if v, ok := deviceProps["Name"]; ok {
-					deviceInfo.Name = v.Value().(string)
-				}
-				if v, ok := deviceProps["Alias"]; ok {
-					deviceInfo.Alias = v.Value().(string)
-				}
-
-				connectedDevices = append(connectedDevices, deviceInfo)
+			deviceInfo := utils.BluetoothDeviceInfo{
+				Address: address,
 			}
+
+			if v, ok := deviceProps["Name"]; ok {
+				deviceInfo.Name = v.Value().(string)
+			}
+			if v, ok := deviceProps["Alias"]; ok {
+				deviceInfo.Alias = v.Value().(string)
+			}
+			if v, ok := deviceProps["Class"]; ok {
+				deviceInfo.Class = fmt.Sprintf("%d", v.Value().(uint32))
+			}
+			if v, ok := deviceProps["Icon"]; ok {
+				deviceInfo.Icon = v.Value().(string)
+			}
+			if v, ok := deviceProps["Paired"]; ok {
+				deviceInfo.Paired = v.Value().(bool)
+			}
+			if v, ok := deviceProps["Trusted"]; ok {
+				deviceInfo.Trusted = v.Value().(bool)
+			}
+			if v, ok := deviceProps["Blocked"]; ok {
+				deviceInfo.Blocked = v.Value().(bool)
+			}
+			if v, ok := deviceProps["Connected"]; ok {
+				deviceInfo.Connected = v.Value().(bool)
+			}
+			if v, ok := deviceProps["LegacyPairing"]; ok {
+				deviceInfo.LegacyPairing = v.Value().(bool)
+			}
+
+			if batteryProps, ok := interfaces[BLUEZ_BATTERY_INTERFACE]; ok {
+				if v, ok := batteryProps["Percentage"]; ok {
+					deviceInfo.BatteryPercentage = int(v.Value().(uint8))
+				}
+			}
+
+			devices = append(devices, deviceInfo)
 		}
 	}
 
-	return connectedDevices, nil
+	return devices, nil
 }
