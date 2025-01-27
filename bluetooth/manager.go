@@ -375,3 +375,41 @@ func (m *BluetoothManager) GetDevices() ([]utils.BluetoothDeviceInfo, error) {
 
 	return devices, nil
 }
+
+func (m *BluetoothManager) ConnectDevice(address string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	devicePath := formatDevicePath(m.adapter, address)
+	obj := m.conn.Object(BLUEZ_BUS_NAME, devicePath)
+
+	props := make(map[string]dbus.Variant)
+	if err := obj.Call("org.freedesktop.DBus.Properties.GetAll", 0, BLUEZ_DEVICE_INTERFACE).Store(&props); err != nil {
+		return fmt.Errorf("failed to get device properties: %v", err)
+	}
+
+	paired, ok := props["Paired"]
+	if !ok || !paired.Value().(bool) {
+		return fmt.Errorf("device is not paired")
+	}
+
+	if err := obj.Call("org.freedesktop.DBus.Properties.Set", 0,
+		BLUEZ_DEVICE_INTERFACE, "Trusted", dbus.MakeVariant(true)).Err; err != nil {
+		return fmt.Errorf("failed to set device as trusted: %v", err)
+	}
+
+	if err := obj.Call("org.bluez.Device1.Connect", 0).Err; err != nil {
+		return fmt.Errorf("failed to connect to device: %v", err)
+	}
+
+	if m.wsHub != nil {
+		m.wsHub.Broadcast(utils.WebSocketEvent{
+			Type: "bluetooth/connect",
+			Payload: utils.DeviceConnectedPayload{
+				Address: address,
+			},
+		})
+	}
+
+	return nil
+}
