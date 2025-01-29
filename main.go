@@ -231,6 +231,31 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	}))
 
+	// POST /bluetooth/disconnect/{address}
+	http.HandleFunc("/bluetooth/disconnect/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		address := strings.TrimPrefix(r.URL.Path, "/bluetooth/disconnect/")
+		if address == "" {
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Bluetooth address is required"})
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		if err := btManager.DisconnectDevice(address); err != nil {
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to disconnect device: " + err.Error()})
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+		w.WriteHeader(http.StatusOK)
+	}))
+
 	// GET /bluetooth/network
 	http.HandleFunc("/bluetooth/network", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {

@@ -413,3 +413,26 @@ func (m *BluetoothManager) ConnectDevice(address string) error {
 
 	return nil
 }
+
+func (m *BluetoothManager) DisconnectDevice(address string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	devicePath := formatDevicePath(m.adapter, address)
+	obj := m.conn.Object(BLUEZ_BUS_NAME, devicePath)
+
+	if err := obj.Call("org.bluez.Device1.Disconnect", 0).Err; err != nil {
+		return fmt.Errorf("failed to disconnect device: %v", err)
+	}
+
+	if m.wsHub != nil {
+		m.wsHub.Broadcast(utils.WebSocketEvent{
+			Type: "bluetooth/disconnect",
+			Payload: utils.DeviceDisconnectedPayload{
+				Address: address,
+			},
+		})
+	}
+
+	return nil
+}
