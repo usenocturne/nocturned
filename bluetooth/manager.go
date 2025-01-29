@@ -398,39 +398,8 @@ func (m *BluetoothManager) ConnectDevice(address string) error {
 		return fmt.Errorf("failed to set device as trusted: %v", err)
 	}
 
-	uuids, ok := props["UUIDs"]
-	if !ok {
-		return fmt.Errorf("device has no available profiles")
-	}
-
-	uuidList := uuids.Value().([]string)
-	hasA2DP := false
-	hasHFP := false
-	hasNAP := false
-
-	for _, uuid := range uuidList {
-		switch uuid {
-		case "0000110a-0000-1000-8000-00805f9b34fb": 
-			hasA2DP = true
-		case "0000111e-0000-1000-8000-00805f9b34fb": 
-			hasHFP = true
-		case "00001116-0000-1000-8000-00805f9b34fb": 
-			hasNAP = true
-		}
-	}
-
-	if hasNAP {
-		if err := obj.Call("org.bluez.Network1.Connect", 0, "nap").Err; err != nil {
-			log.Printf("Failed to connect NAP profile: %v", err)
-		}
-	}
-
-	if hasA2DP || hasHFP {
-		if err := obj.Call("org.bluez.Device1.Connect", 0).Err; err != nil {
-			return fmt.Errorf("failed to connect to device: %v", err)
-		}
-	} else if !hasNAP {
-		return fmt.Errorf("no supported profiles found for this device")
+	if err := obj.Call("org.bluez.Device1.Connect", 0).Err; err != nil {
+		return fmt.Errorf("failed to connect to device: %v", err)
 	}
 
 	if m.wsHub != nil {
