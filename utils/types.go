@@ -33,6 +33,10 @@ type PairingStartedPayload struct {
 	PairingKey string `json:"pairingKey"`
 }
 
+type DeviceConnectedPayload struct {
+	Address string `json:"address"`
+}
+
 type DeviceDisconnectedPayload struct {
 	Address string `json:"address"`
 }
