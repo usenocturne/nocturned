@@ -37,10 +37,8 @@ func (h *WebSocketHub) RemoveClient(conn *websocket.Conn) {
 
 func (h *WebSocketHub) Broadcast(event utils.WebSocketEvent) {
 	h.mu.Lock()
-	// Create a list of clients to remove after broadcasting
 	var clientsToRemove []*websocket.Conn
 	
-	// Attempt to broadcast to all clients
 	for conn := range h.clients {
 		if err := conn.WriteJSON(event); err != nil {
 			log.Printf("Client disconnected: %v", err)
@@ -50,7 +48,6 @@ func (h *WebSocketHub) Broadcast(event utils.WebSocketEvent) {
 	}
 	h.mu.Unlock()
 
-	// Remove disconnected clients after broadcasting
 	if len(clientsToRemove) > 0 {
 		h.mu.Lock()
 		for _, conn := range clientsToRemove {
