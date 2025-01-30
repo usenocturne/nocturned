@@ -129,11 +129,22 @@ func (m *BluetoothManager) monitorDisconnects() {
 
 				changes := signal.Body[1].(map[string]dbus.Variant)
 				if connected, ok := changes["Connected"]; ok {
-					if !connected.Value().(bool) {
-						devicePath := string(signal.Path)
-						address := strings.TrimPrefix(devicePath, string(m.adapter)+"/dev_")
-						address = strings.ReplaceAll(address, "_", ":")
+					devicePath := string(signal.Path)
+					address := strings.TrimPrefix(devicePath, string(m.adapter)+"/dev_")
+					address = strings.ReplaceAll(address, "_", ":")
 
+					if connected.Value().(bool) {
+						log.Printf("Device connected: %s", devicePath)
+						if m.wsHub != nil {
+							m.wsHub.Broadcast(utils.WebSocketEvent{
+								Type: "bluetooth/connect",
+								Payload: utils.DeviceConnectedPayload{
+									Address: address,
+								},
+							})
+						}
+					} else {
+						log.Printf("Device disconnected: %s", devicePath)
 						if m.wsHub != nil {
 							m.wsHub.Broadcast(utils.WebSocketEvent{
 								Type: "bluetooth/disconnect",
@@ -142,8 +153,6 @@ func (m *BluetoothManager) monitorDisconnects() {
 								},
 							})
 						}
-
-						log.Printf("Device disconnected: %s", devicePath)
 
 						if m.agent != nil && m.agent.current != nil && m.agent.current.Device == devicePath {
 							m.mu.Lock()
@@ -401,6 +410,8 @@ func (m *BluetoothManager) ConnectDevice(address string) error {
 	if err := obj.Call("org.bluez.Device1.Connect", 0).Err; err != nil {
 		return fmt.Errorf("failed to connect to device: %v", err)
 	}
+
+	log.Printf("Device connected: %s", devicePath)
 
 	if m.wsHub != nil {
 		m.wsHub.Broadcast(utils.WebSocketEvent{
