@@ -70,13 +70,15 @@ func main() {
 	// GET /info
 	http.HandleFunc("/info", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
 		content, err := os.ReadFile("/etc/nocturne/version.txt")
 		if err != nil {
-			http.Error(w, "Error reading version file", http.StatusInternalServerError)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Error reading version file"})
 			return
 		}
 
@@ -85,7 +87,8 @@ func main() {
 		}
 
 		if err := json.NewEncoder(w).Encode(response); err != nil {
-			http.Error(w, "Error encoding response", http.StatusInternalServerError)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Error encoding response"})
 			return
 		}
 	}))
@@ -93,14 +96,14 @@ func main() {
 	// POST /bluetooth/discover/on
 	http.HandleFunc("/bluetooth/discover/on", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
 		if err := btManager.SetDiscoverable(true); err != nil {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to enable discoverable mode: " + err.Error()})
 			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to enable discoverable mode: " + err.Error()})
 			return
 		}
 
@@ -111,12 +114,14 @@ func main() {
 	// POST /bluetooth/discover/off
 	http.HandleFunc("/bluetooth/discover/off", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
 		if err := btManager.SetDiscoverable(false); err != nil {
-			http.Error(w, "Failed to disable discoverable mode", http.StatusInternalServerError)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to disable discoverable mode"})
 			return
 		}
 
@@ -126,12 +131,14 @@ func main() {
 	// POST /bluetooth/pairing/accept
 	http.HandleFunc("/bluetooth/pairing/accept", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
 		if err := btManager.AcceptPairing(); err != nil {
-			http.Error(w, "Failed to accept pairing", http.StatusInternalServerError)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to accept pairing"})
 			return
 		}
 
@@ -141,12 +148,14 @@ func main() {
 	// POST /bluetooth/pairing/deny
 	http.HandleFunc("/bluetooth/pairing/deny", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
 		if err := btManager.DenyPairing(); err != nil {
-			http.Error(w, "Failed to deny pairing", http.StatusInternalServerError)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to deny pairing"})
 			return
 		}
 
@@ -156,28 +165,28 @@ func main() {
 	// GET /bluetooth/info/{address}
 	http.HandleFunc("/bluetooth/info/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
 		address := strings.TrimPrefix(r.URL.Path, "/bluetooth/info/")
 		if address == "" {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Bluetooth address is required"})
 			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Bluetooth address is required"})
 			return
 		}
 
 		info, err := btManager.GetDeviceInfo(address)
 		if err != nil {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to get device info: " + err.Error()})
 			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to get device info: " + err.Error()})
 			return
 		}
 
 		if err := json.NewEncoder(w).Encode(info); err != nil {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Error encoding response: " + err.Error()})
 			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Error encoding response: " + err.Error()})
 			return
 		}
 	}))
@@ -185,21 +194,21 @@ func main() {
 	// POST /bluetooth/remove/{address}
 	http.HandleFunc("/bluetooth/remove/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
 		address := strings.TrimPrefix(r.URL.Path, "/bluetooth/remove/")
 		if address == "" {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Bluetooth address is required"})
 			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Bluetooth address is required"})
 			return
 		}
 
 		if err := btManager.RemoveDevice(address); err != nil {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to remove device: " + err.Error()})
 			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to remove device: " + err.Error()})
 			return
 		}
 
@@ -209,89 +218,90 @@ func main() {
 	// POST /bluetooth/connect/{address}
 	http.HandleFunc("/bluetooth/connect/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
 		address := strings.TrimPrefix(r.URL.Path, "/bluetooth/connect/")
 		if address == "" {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Bluetooth address is required"})
 			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Bluetooth address is required"})
 			return
 		}
 
 		if err := btManager.ConnectDevice(address); err != nil {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to connect to device: " + err.Error()})
 			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to connect to device: " + err.Error()})
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	}))
 
 	// POST /bluetooth/disconnect/{address}
 	http.HandleFunc("/bluetooth/disconnect/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
 		address := strings.TrimPrefix(r.URL.Path, "/bluetooth/disconnect/")
 		if address == "" {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Bluetooth address is required"})
 			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Bluetooth address is required"})
 			return
 		}
 
 		if err := btManager.DisconnectDevice(address); err != nil {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to disconnect device: " + err.Error()})
 			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to disconnect device: " + err.Error()})
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	}))
 
 	// GET /bluetooth/network
 	http.HandleFunc("/bluetooth/network", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
 		link, err := netlink.LinkByName("bnep0")
 		if err != nil || link.Attrs().Flags&net.FlagUp == 0 {
-			json.NewEncoder(w).Encode(map[string]string{"status": "down"})
 			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"status": "down"})
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]string{"status": "up"})
 		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "up"})
 	}))
 
 	// POST /bluetooth/network/{address}
 	http.HandleFunc("/bluetooth/network/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
 		address := strings.TrimPrefix(r.URL.Path, "/bluetooth/network/")
 		if address == "" {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Bluetooth address is required"})
 			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Bluetooth address is required"})
 			return
 		}
 
 		if err := btManager.ConnectNetwork(address); err != nil {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to connect to Bluetooth network: " + err.Error()})
 			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to connect to Bluetooth network: " + err.Error()})
 			return
 		}
 
@@ -302,15 +312,15 @@ func main() {
 	// GET /bluetooth/devices
 	http.HandleFunc("/bluetooth/devices", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
 		devices, err := btManager.GetDevices()
 		if err != nil {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to get devices: " + err.Error()})
 			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to get devices: " + err.Error()})
 			return
 		}
 
@@ -319,8 +329,8 @@ func main() {
 		}
 
 		if err := json.NewEncoder(w).Encode(devices); err != nil {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Error encoding response: " + err.Error()})
 			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Error encoding response: " + err.Error()})
 			return
 		}
 	}))
@@ -328,8 +338,8 @@ func main() {
 	// POST /ota/download
 	http.HandleFunc("/ota/download", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
@@ -338,8 +348,8 @@ func main() {
 		}
 
 		if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Invalid request body"})
 			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Invalid request body"})
 			return
 		}
 
@@ -358,14 +368,14 @@ func main() {
 	// POST /ota/deploy
 	http.HandleFunc("/ota/deploy", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
 		if err := otaUpdater.Deploy(); err != nil {
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "OTA update failed: " + err.Error()})
 			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "OTA update failed: " + err.Error()})
 			return
 		}
 
