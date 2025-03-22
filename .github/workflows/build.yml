@@ -1,4 +1,4 @@
-name: Build nocturned
+name: Build
 
 on:
   workflow_dispatch:
@@ -15,18 +15,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@v30
-        with:
-          extra_nix_config: |
-            trusted-public-keys = nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nocturne:C3rx7XJOGGbybHbYZ+Y2ucq5yavdjRD7K3Me0oirsTY=
-            trusted-substituters = https://nix-community.cachix.org https://cache.nixos.org https://attic.svrd.me/nocturne
-            substituters = https://nix-community.cachix.org https://cache.nixos.org https://attic.svrd.me/nocturne
-          github_access_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check Nix flake
-        run: nix flake check
 
       - name: Build nocturned
         run: GOOS=linux GOARCH=arm64 go build

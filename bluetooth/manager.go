@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -171,14 +174,122 @@ func (m *BluetoothManager) monitorNetworkInterfaces() {
 			if update.Header.Type == syscall.RTM_DELLINK && update.Link.Attrs().Name == "bnep0" {
 				log.Println("bnep0 interface removed")
 
+				// disconnect
+				m.signalUdhcpc("bnep0", "USR2")
+
 				if m.wsHub != nil {
 					m.wsHub.Broadcast(utils.WebSocketEvent{
 						Type: "bluetooth/network/disconnect",
 					})
 				}
 			}
+
+			if update.Header.Type == syscall.RTM_NEWLINK && update.Link.Attrs().Name == "bnep0" {
+				if update.Link.Attrs().Flags&net.FlagUp != 0 {
+					log.Println("bnep0 interface added and up")
+
+					// connect
+					m.ensureUdhcpcRunning("bnep0")
+					m.signalUdhcpc("bnep0", "USR1")
+				}
+			}
 		}
 	}()
+}
+
+// signalUdhcpc sends a signal to the udhcpc process for the given interface
+func (m *BluetoothManager) signalUdhcpc(iface, signal string) {
+	pidFile := fmt.Sprintf("/var/run/udhcpc.%s.pid", iface)
+
+	pidBytes, err := os.ReadFile(pidFile)
+	if err != nil {
+		log.Printf("Failed to read udhcpc PID file for %s: %v", iface, err)
+
+		if signal == "USR1" {
+			m.ensureUdhcpcRunning(iface)
+		}
+		return
+	}
+
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
+	if err != nil {
+		log.Printf("Invalid PID in udhcpc PID file for %s: %v", iface, err)
+		return
+	}
+
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		log.Printf("Failed to find udhcpc process (PID %d) for %s: %v", pid, iface, err)
+		return
+	}
+
+	var sig syscall.Signal
+	switch signal {
+	case "USR1":
+		sig = syscall.SIGUSR1
+	case "USR2":
+		sig = syscall.SIGUSR2
+	default:
+		log.Printf("Invalid signal %s", signal)
+		return
+	}
+
+	if err := process.Signal(sig); err != nil {
+		log.Printf("Failed to send %s signal to udhcpc process (PID %d) for %s: %v", signal, pid, iface, err)
+
+		if signal == "USR1" {
+			m.ensureUdhcpcRunning(iface)
+		}
+		return
+	}
+
+	log.Printf("Sent %s signal to udhcpc process (PID %d) for %s", signal, pid, iface)
+}
+
+func (m *BluetoothManager) ensureUdhcpcRunning(iface string) {
+	log.Printf("Ensuring udhcpc is running for %s", iface)
+
+	link, err := netlink.LinkByName(iface)
+	if err != nil {
+		log.Printf("Interface %s not found: %v", iface, err)
+		return
+	}
+
+	if link.Attrs().Flags&net.FlagUp == 0 {
+		log.Printf("Interface %s is not up", iface)
+		return
+	}
+
+	pidFile := fmt.Sprintf("/var/run/udhcpc.%s.pid", iface)
+
+	if pidBytes, err := os.ReadFile(pidFile); err == nil {
+		pid, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
+		if err == nil {
+			process, err := os.FindProcess(pid)
+			if err == nil {
+				if err := process.Signal(syscall.Signal(0)); err == nil {
+					log.Printf("udhcpc is already running for %s with PID %d", iface, pid)
+					return
+				}
+			}
+		}
+	}
+
+	findCmd := exec.Command("pgrep", "-f", fmt.Sprintf("udhcpc -i %s", iface))
+	findOutput, err := findCmd.Output()
+	if err == nil && len(findOutput) > 0 {
+		log.Printf("Found existing udhcpc process for %s: %s", iface, strings.TrimSpace(string(findOutput)))
+		return
+	}
+
+	cmd := exec.Command("udhcpc", "-i", iface, "-p", pidFile, "-f", "-b", "-S")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Failed to start udhcpc for %s: %v, output: %s", iface, err, output)
+		return
+	}
+
+	log.Printf("Started udhcpc for %s: %s", iface, strings.TrimSpace(string(output)))
 }
 
 func (m *BluetoothManager) setPower(enable bool) error {
@@ -301,6 +412,9 @@ func (m *BluetoothManager) ConnectNetwork(address string) error {
 	if err != nil || link.Attrs().Flags&net.FlagUp == 0 {
 		return fmt.Errorf("bnep0 interface is not up")
 	}
+
+	m.ensureUdhcpcRunning("bnep0")
+	m.signalUdhcpc("bnep0", "USR1")
 
 	if m.wsHub != nil {
 		m.wsHub.Broadcast(utils.WebSocketEvent{

@@ -2,17 +2,19 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/vishvananda/netlink"
 
 	"github.com/usenocturne/nocturned/bluetooth"
-	"github.com/usenocturne/nocturned/ota"
 	"github.com/usenocturne/nocturned/utils"
 	"github.com/usenocturne/nocturned/ws"
 )
@@ -55,7 +57,19 @@ func main() {
 		log.Fatal("Failed to initialize bluetooth manager:", err)
 	}
 
-	otaUpdater := ota.NewOTAUpdater(wsHub)
+	broadcastProgress := func(progress utils.ProgressMessage) {
+		wsHub.Broadcast(utils.WebSocketEvent{
+			Type:    "update_progress",
+			Payload: progress,
+		})
+	}
+
+	broadcastCompletion := func(completion utils.CompletionMessage) {
+		wsHub.Broadcast(utils.WebSocketEvent{
+			Type:    "update_completion",
+			Payload: completion,
+		})
+	}
 
 	// WebSockets
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
@@ -335,51 +349,132 @@ func main() {
 		}
 	}))
 
-	// POST /ota/download
-	http.HandleFunc("/ota/download", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	// POST /update
+	http.HandleFunc("/update", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
-		var requestData struct {
-			URL string `json:"url"`
-		}
-
+		var requestData utils.UpdateRequest
 		if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Invalid request body"})
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Invalid request body: " + err.Error()})
+			return
+		}
+
+		status := utils.GetUpdateStatus()
+		if status.InProgress {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Update already in progress"})
 			return
 		}
 
 		go func() {
-			if err := otaUpdater.Download(requestData.URL); err != nil {
-				wsHub.Broadcast(utils.WebSocketEvent{
-					Type:    "ota/download/error",
-					Payload: err.Error(),
-				})
+			utils.SetUpdateStatus(true, "download", "")
+
+			tempDir, err := os.MkdirTemp("/data/tmp", "update-*")
+			if err != nil {
+				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to create temp directory: %v", err))
+				return
 			}
+			defer os.RemoveAll(tempDir)
+
+			imgPath := filepath.Join(tempDir, "update.img.gz")
+			imgResp, err := http.Get(requestData.ImageURL)
+			if err != nil {
+				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to download image: %v", err))
+				return
+			}
+			defer imgResp.Body.Close()
+
+			imgFile, err := os.Create(imgPath)
+			if err != nil {
+				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to create image file: %v", err))
+				return
+			}
+			defer imgFile.Close()
+
+			contentLength := imgResp.ContentLength
+			progressReader := utils.NewProgressReader(imgResp.Body, contentLength, func(complete, total int64, speed float64) {
+				percent := float64(complete) / float64(total) * 100
+				broadcastProgress(utils.ProgressMessage{
+					Type:          "progress",
+					Stage:         "download",
+					BytesComplete: complete,
+					BytesTotal:    total,
+					Speed:         float64(int(speed*10)) / 10,
+					Percent:       float64(int(percent*10)) / 10,
+				})
+			})
+
+			if _, err := io.Copy(imgFile, progressReader); err != nil {
+				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to save image file: %v", err))
+				return
+			}
+
+			sumResp, err := http.Get(requestData.SumURL)
+			if err != nil {
+				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to download checksum: %v", err))
+				return
+			}
+			defer sumResp.Body.Close()
+
+			sumBytes, err := io.ReadAll(sumResp.Body)
+			if err != nil {
+				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to read checksum: %v", err))
+				return
+			}
+
+			sumParts := strings.Fields(string(sumBytes))
+			if len(sumParts) != 2 {
+				utils.SetUpdateStatus(false, "", "Invalid checksum format")
+				return
+			}
+			sum := sumParts[0]
+
+			utils.SetUpdateStatus(true, "flash", "")
+			if err := utils.UpdateSystem(imgPath, sum, broadcastProgress); err != nil {
+				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to update system: %v", err))
+				broadcastCompletion(utils.CompletionMessage{
+					Type:    "completion",
+					Stage:   "flash",
+					Success: false,
+					Error:   fmt.Sprintf("Failed to update system: %v", err),
+				})
+				return
+			}
+
+			utils.SetUpdateStatus(false, "", "")
+			broadcastCompletion(utils.CompletionMessage{
+				Type:    "completion",
+				Stage:   "flash",
+				Success: true,
+			})
 		}()
 
-		w.WriteHeader(http.StatusAccepted)
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(utils.OKResponse{Status: "success"}); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to encode JSON: " + err.Error()})
+			return
+		}
 	}))
 
-	// POST /ota/deploy
-	http.HandleFunc("/ota/deploy", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
+	// GET /update/status
+	http.HandleFunc("/update/status", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
 
-		if err := otaUpdater.Deploy(); err != nil {
+		if err := json.NewEncoder(w).Encode(utils.GetUpdateStatus()); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "OTA update failed: " + err.Error()})
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to encode JSON: " + err.Error()})
 			return
 		}
-
-		w.WriteHeader(http.StatusOK)
 	}))
 
 	port := os.Getenv("PORT")
