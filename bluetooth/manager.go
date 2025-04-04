@@ -386,28 +386,30 @@ func (m *BluetoothManager) ConnectDevice(address string) error {
 
 	if err == nil {
 		log.Printf("Successfully connected to device %s", address)
-
-		deviceInfo, err := m.GetDeviceInfo(address)
-		if err != nil {
-			log.Printf("Error getting device info after connect: %v", err)
-			if m.wsHub != nil {
-				m.wsHub.Broadcast(utils.WebSocketEvent{
-					Type: "bluetooth/connect",
-					Payload: utils.DeviceConnectedPayload{
-						Address: address,
-					},
-				})
+		
+		go func() {
+			deviceInfo, err := m.GetDeviceInfo(address)
+			if err != nil {
+				log.Printf("Error getting device info after connect: %v", err)
+				if m.wsHub != nil {
+					m.wsHub.Broadcast(utils.WebSocketEvent{
+						Type: "bluetooth/connect",
+						Payload: utils.DeviceConnectedPayload{
+							Address: address,
+						},
+					})
+				}
+			} else {
+				if m.wsHub != nil {
+					m.wsHub.Broadcast(utils.WebSocketEvent{
+						Type: "bluetooth/connect",
+						Payload: utils.DeviceConnectedPayload{
+							Device: deviceInfo,
+						},
+					})
+				}
 			}
-		} else {
-			if m.wsHub != nil {
-				m.wsHub.Broadcast(utils.WebSocketEvent{
-					Type: "bluetooth/connect",
-					Payload: utils.DeviceConnectedPayload{
-						Device: deviceInfo,
-					},
-				})
-			}
-		}
+		}()
 		return nil
 	}
 
