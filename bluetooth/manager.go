@@ -23,6 +23,7 @@ type BluetoothManager struct {
 	mu              sync.Mutex
 	pairingRequests chan utils.PairingRequest
 	wsHub           *ws.WebSocketHub
+	pendingDisconnects sync.Map
 }
 
 func NewBluetoothManager(wsHub *ws.WebSocketHub) (*BluetoothManager, error) {
@@ -135,13 +136,15 @@ func (m *BluetoothManager) monitorDisconnects() {
 						address := strings.TrimPrefix(devicePath, string(m.adapter)+"/dev_")
 						address = strings.ReplaceAll(address, "_", ":")
 
-						if m.wsHub != nil {
-							m.wsHub.Broadcast(utils.WebSocketEvent{
-								Type: "bluetooth/disconnect",
-								Payload: utils.DeviceDisconnectedPayload{
-									Address: address,
-								},
-							})
+						if _, exists := m.pendingDisconnects.LoadAndDelete(address); !exists {
+							if m.wsHub != nil {
+								m.wsHub.Broadcast(utils.WebSocketEvent{
+									Type: "bluetooth/disconnect",
+									Payload: utils.DeviceDisconnectedPayload{
+										Address: address,
+									},
+								})
+							}
 						}
 
 						log.Printf("Device disconnected: %s", devicePath)
@@ -423,7 +426,10 @@ func (m *BluetoothManager) DisconnectDevice(address string) error {
 	devicePath := formatDevicePath(m.adapter, address)
 	obj := m.conn.Object(BLUEZ_BUS_NAME, devicePath)
 
+	m.pendingDisconnects.Store(address, true)
+
 	if err := obj.Call("org.bluez.Device1.Disconnect", 0).Err; err != nil {
+		m.pendingDisconnects.Delete(address)
 		return fmt.Errorf("failed to disconnect device: %v", err)
 	}
 
