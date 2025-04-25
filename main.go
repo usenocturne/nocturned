@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/gorilla/websocket"
@@ -55,6 +56,10 @@ func main() {
 	btManager, err := bluetooth.NewBluetoothManager(wsHub)
 	if err != nil {
 		log.Fatal("Failed to initialize bluetooth manager:", err)
+	}
+
+	if err := utils.InitBrightness(); err != nil {
+		log.Printf("Failed to initialize brightness: %v", err)
 	}
 
 	broadcastProgress := func(progress utils.ProgressMessage) {
@@ -347,6 +352,51 @@ func main() {
 			json.NewEncoder(w).Encode(ErrorResponse{Error: "Error encoding response: " + err.Error()})
 			return
 		}
+	}))
+
+	// GET /device/brightness
+	http.HandleFunc("/device/brightness", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			return
+		}
+
+		brightness, err := utils.GetBrightness()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to get brightness: " + err.Error()})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]int{"brightness": brightness})
+	}))
+
+	// POST /device/brightness/{value}
+	http.HandleFunc("/device/brightness/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			return
+		}
+
+		valueStr := strings.TrimPrefix(r.URL.Path, "/device/brightness/")
+		value, err := strconv.Atoi(valueStr)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Invalid brightness value"})
+			return
+		}
+
+		if err := utils.SetBrightness(value); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to set brightness: " + err.Error()})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	}))
 
 	// POST /update
