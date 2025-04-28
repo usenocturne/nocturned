@@ -59,3 +59,23 @@ func InitBrightness() error {
 
 	return SetBrightness(value)
 }
+
+func ResetCounter() error {
+	commands := []struct {
+		name string
+		args []string
+	}{
+		{"mount", []string{"-o", "remount,rw", "/uboot"}},
+		{"uboot_tool", []string{"reset_counter"}},
+		{"sync", []string{}},
+		{"mount", []string{"-o", "remount,ro", "/uboot"}},
+	}
+
+	for _, cmd := range commands {
+		if output, err := ExecuteCommand(cmd.name, cmd.args...); err != nil {
+			return fmt.Errorf("failed to execute command '%s': %v (output: %s)", cmd.name, err, output)
+		}
+	}
+
+	return nil
+}

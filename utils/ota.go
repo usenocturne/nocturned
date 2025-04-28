@@ -87,8 +87,8 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func runShell(command string) (string, error) {
-	cmd := exec.Command("/bin/sh", "-c", command)
+func ExecuteCommand(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
 	cmd.Env = os.Environ()
 	o, err := cmd.CombinedOutput()
 	return string(o), err
