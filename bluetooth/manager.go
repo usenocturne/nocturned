@@ -3,7 +3,6 @@ package bluetooth
 import (
 	"fmt"
 	"log"
-	"net"
 	"os/exec"
 	"strings"
 	"sync"
@@ -294,28 +293,24 @@ func (m *BluetoothManager) ConnectNetwork(address string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	devicePath := formatDevicePath(m.adapter, address)
-	obj := m.conn.Object(BLUEZ_BUS_NAME, devicePath)
+	cmd := exec.Command("nmcli", "device", "connect", address)
+	_, err := cmd.CombinedOutput()
 
-	if err := obj.Call("org.bluez.Network1.Connect", 0, "nap").Err; err != nil {
-		return err
+	if err == nil {
+		log.Printf("Successfully connected network to device %s", address)
+		
+		if m.wsHub != nil {
+			m.wsHub.Broadcast(utils.WebSocketEvent{
+				Type: "bluetooth/network/connect",
+				Payload: utils.NetworkConnectedPayload{
+					Address: address,
+				},
+			})
+		}
+		return nil
 	}
 
-	link, err := netlink.LinkByName("bnep0")
-	if err != nil || link.Attrs().Flags&net.FlagUp == 0 {
-		return fmt.Errorf("bnep0 interface is not up")
-	}
-
-	if m.wsHub != nil {
-		m.wsHub.Broadcast(utils.WebSocketEvent{
-			Type: "bluetooth/network/connect",
-			Payload: utils.NetworkConnectedPayload{
-				Address: address,
-			},
-		})
-	}
-
-	return nil
+	return err
 }
 
 func (m *BluetoothManager) GetDevices() ([]utils.BluetoothDeviceInfo, error) {
@@ -384,39 +379,39 @@ func (m *BluetoothManager) ConnectDevice(address string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cmd := exec.Command("nmcli", "device", "connect", address)
-	_, err := cmd.CombinedOutput()
+	devicePath := formatDevicePath(m.adapter, address)
+	obj := m.conn.Object(BLUEZ_BUS_NAME, devicePath)
 
-	if err == nil {
-		log.Printf("Successfully connected to device %s", address)
-		
-		go func() {
-			deviceInfo, err := m.GetDeviceInfo(address)
-			if err != nil {
-				log.Printf("Error getting device info after connect: %v", err)
-				if m.wsHub != nil {
-					m.wsHub.Broadcast(utils.WebSocketEvent{
-						Type: "bluetooth/connect",
-						Payload: utils.DeviceConnectedPayload{
-							Address: address,
-						},
-					})
-				}
-			} else {
-				if m.wsHub != nil {
-					m.wsHub.Broadcast(utils.WebSocketEvent{
-						Type: "bluetooth/connect",
-						Payload: utils.DeviceConnectedPayload{
-							Device: deviceInfo,
-						},
-					})
-				}
-			}
-		}()
-		return nil
+	if err := obj.Call("org.bluez.Device1.Connect", 0).Err; err != nil {
+		return err
 	}
 
-	return err
+	log.Printf("Successfully connected to device %s", address)
+	
+	go func() {
+		deviceInfo, err := m.GetDeviceInfo(address)
+		if err != nil {
+			log.Printf("Error getting device info after connect: %v", err)
+			if m.wsHub != nil {
+				m.wsHub.Broadcast(utils.WebSocketEvent{
+					Type: "bluetooth/connect",
+					Payload: utils.DeviceConnectedPayload{
+						Address: address,
+					},
+				})
+			}
+		} else {
+			if m.wsHub != nil {
+				m.wsHub.Broadcast(utils.WebSocketEvent{
+					Type: "bluetooth/connect",
+					Payload: utils.DeviceConnectedPayload{
+						Device: deviceInfo,
+					},
+				})
+			}
+		}
+	}()
+	return nil
 }
 
 func (m *BluetoothManager) DisconnectDevice(address string) error {
