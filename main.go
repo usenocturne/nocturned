@@ -666,6 +666,42 @@ func main() {
 		}
 	}))
 
+	// POST /bluetooth/media/play
+	http.HandleFunc("/bluetooth/media/play", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			return
+		}
+
+		if err := btManager.PlayMedia(); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	}))
+
+	// POST /bluetooth/media/pause
+	http.HandleFunc("/bluetooth/media/pause", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			return
+		}
+
+		if err := btManager.PauseMedia(); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	}))
+
 	go networkChecker(wsHub)
 
 	// GET /network/status
