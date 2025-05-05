@@ -15,6 +15,30 @@ type BluetoothDeviceInfo struct {
 	BatteryPercentage int    `json:"batteryPercentage,omitempty"`
 }
 
+// Media Player
+type MediaPlayerState string
+
+const (
+	Playing MediaPlayerState = "playing"
+	Paused  MediaPlayerState = "paused"
+	Stopped MediaPlayerState = "stopped"
+)
+
+type MediaPlayerInfo struct {
+	Name     string          `json:"name"`
+	Status   MediaPlayerState `json:"status"`
+	Track    MediaTrackInfo  `json:"track"`
+	Position uint32          `json:"position"`
+	Address  string          `json:"address"`
+}
+
+type MediaTrackInfo struct {
+	Title    string `json:"title"`
+	Artist   string `json:"artist"`
+	Album    string `json:"album"`
+	Duration uint32 `json:"duration"`
+}
+
 type PairingRequest struct {
 	Device      string
 	Passkey     string
@@ -47,4 +71,8 @@ type DevicePairedPayload struct {
 
 type NetworkConnectedPayload struct {
 	Address string `json:"address"`
+}
+
+type MediaPlayerUpdatePayload struct {
+	Player MediaPlayerInfo `json:"player"`
 }
