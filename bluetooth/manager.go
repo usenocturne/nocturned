@@ -23,6 +23,137 @@ type BluetoothManager struct {
 	pairingRequests chan utils.PairingRequest
 	wsHub           *ws.WebSocketHub
 	pendingDisconnects sync.Map
+	mediaPlayers    sync.Map
+}
+
+func getMediaPlayerInfo(conn *dbus.Conn, playerPath dbus.ObjectPath) (*utils.MediaPlayerInfo, error) {
+	obj := conn.Object(BLUEZ_BUS_NAME, playerPath)
+	props := make(map[string]dbus.Variant)
+	if err := obj.Call("org.freedesktop.DBus.Properties.GetAll", 0, BLUEZ_MEDIA_PLAYER_INTERFACE).Store(&props); err != nil {
+		return nil, err
+	}
+
+	address := strings.TrimPrefix(strings.Split(string(playerPath), "/player")[0], "/org/bluez/")
+	address = strings.ReplaceAll(address, "_", ":")
+
+	info := &utils.MediaPlayerInfo{
+		Address: address,
+	}
+
+	if name, ok := props["Name"]; ok {
+		info.Name = name.Value().(string)
+	}
+
+	if status, ok := props["Status"]; ok {
+		info.Status = utils.MediaPlayerState(status.Value().(string))
+	}
+
+	if track, ok := props["Track"]; ok {
+		trackMap := track.Value().(map[string]dbus.Variant)
+		info.Track = utils.MediaTrackInfo{}
+		
+		if title, ok := trackMap["Title"]; ok {
+			info.Track.Title = title.Value().(string)
+		}
+		if artist, ok := trackMap["Artist"]; ok {
+			info.Track.Artist = artist.Value().(string)
+		}
+		if album, ok := trackMap["Album"]; ok {
+			info.Track.Album = album.Value().(string)
+		}
+		if duration, ok := trackMap["Duration"]; ok {
+			info.Track.Duration = duration.Value().(uint32)
+		}
+	}
+
+	if position, ok := props["Position"]; ok {
+		info.Position = position.Value().(uint32)
+	}
+
+	return info, nil
+}
+
+func (m *BluetoothManager) monitorMediaPlayers() {
+	if err := m.conn.AddMatchSignal(
+		dbus.WithMatchInterface("org.freedesktop.DBus.Properties"),
+		dbus.WithMatchMember("PropertiesChanged"),
+		dbus.WithMatchPathNamespace("/org/bluez"),
+	); err != nil {
+		log.Printf("Failed to add signal match for media players: %v", err)
+		return
+	}
+
+	signals := make(chan *dbus.Signal, 10)
+	m.conn.Signal(signals)
+
+	go func() {
+		for signal := range signals {
+			if signal.Name != "org.freedesktop.DBus.Properties.PropertiesChanged" {
+				continue
+			}
+
+			if len(signal.Body) < 3 {
+				continue
+			}
+
+			iface := signal.Body[0].(string)
+			if iface != BLUEZ_MEDIA_PLAYER_INTERFACE {
+				continue
+			}
+
+			playerPath := signal.Path
+			info, err := getMediaPlayerInfo(m.conn, playerPath)
+			if err != nil {
+				log.Printf("Failed to get media player info: %v", err)
+				continue
+			}
+
+			if m.wsHub != nil {
+				m.wsHub.Broadcast(utils.WebSocketEvent{
+					Type: "bluetooth/media",
+					Payload: utils.MediaPlayerUpdatePayload{
+						Player: *info,
+					},
+				})
+			}
+		}
+	}()
+}
+
+func (m *BluetoothManager) GetActiveMediaPlayer() (*utils.MediaPlayerInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	objects := make(map[dbus.ObjectPath]map[string]map[string]dbus.Variant)
+	obj := m.conn.Object(BLUEZ_BUS_NAME, "/")
+	if err := obj.Call("org.freedesktop.DBus.ObjectManager.GetManagedObjects", 0).Store(&objects); err != nil {
+		return nil, fmt.Errorf("failed to get managed objects: %v", err)
+	}
+
+	var connectedDevicePath string
+	for path, interfaces := range objects {
+		if deviceProps, ok := interfaces[BLUEZ_DEVICE_INTERFACE]; ok {
+			if connected, ok := deviceProps["Connected"]; ok && connected.Value().(bool) {
+				connectedDevicePath = string(path)
+				break
+			}
+		}
+	}
+
+	if connectedDevicePath == "" {
+		return nil, nil 
+	}
+
+	devicePrefix := connectedDevicePath + "/player"
+	for path, interfaces := range objects {
+		if _, ok := interfaces[BLUEZ_MEDIA_PLAYER_INTERFACE]; ok {
+			if strings.HasPrefix(string(path), devicePrefix) {
+				return getMediaPlayerInfo(m.conn, path)
+			}
+		}
+	}
+
+	return nil, nil
 }
 
 func NewBluetoothManager(wsHub *ws.WebSocketHub) (*BluetoothManager, error) {
@@ -57,6 +188,7 @@ func NewBluetoothManager(wsHub *ws.WebSocketHub) (*BluetoothManager, error) {
 
 	manager.monitorDisconnects()
 	manager.monitorNetworkInterfaces()
+	manager.monitorMediaPlayers()
 
 	return manager, nil
 }
