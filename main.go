@@ -11,8 +11,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
+	probing "github.com/prometheus-community/pro-bing"
 	"github.com/vishvananda/netlink"
 
 	"github.com/usenocturne/nocturned/bluetooth"
@@ -50,8 +52,67 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func networkChecker(hub *ws.WebSocketHub) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	consecutiveFailures := 0
+	isCurrentlyOffline := false
+	const targetHost = "api.spotify.com"
+	const failureThreshold = 3
+	const pingTimeout = 2 * time.Second
+
+	for range ticker.C {
+		pinger, err := probing.NewPinger(targetHost)
+		if err != nil {
+			consecutiveFailures++
+			if consecutiveFailures >= failureThreshold && !isCurrentlyOffline {
+				isCurrentlyOffline = true
+				hub.Broadcast(utils.WebSocketEvent{
+					Type:    "network_status",
+					Payload: map[string]string{"status": "offline", "reason": "pinger_creation_failed"},
+				})
+			}
+			continue
+		}
+
+		pinger.Count = 1
+		pinger.Timeout = pingTimeout
+
+		err = pinger.Run()
+		stats := pinger.Statistics()
+
+		if err != nil || stats.PacketsRecv == 0 {
+			consecutiveFailures++
+			if consecutiveFailures >= failureThreshold && !isCurrentlyOffline {
+				isCurrentlyOffline = true
+				errMsg := "packets_not_received"
+				if err != nil {
+					errMsg = err.Error()
+				}
+				log.Printf("network offline (ping failed for %d attempts). PacketsSent: %d, PacketsRecv: %d, Error: %s\n", consecutiveFailures, stats.PacketsSent, stats.PacketsRecv, errMsg)
+				hub.Broadcast(utils.WebSocketEvent{
+					Type:    "network_status",
+					Payload: map[string]string{"status": "offline", "reason": "ping_failed"},
+				})
+			}
+		} else {
+			if isCurrentlyOffline {
+				log.Printf("network online. PacketsRecv: %d, AvgRtt: %v\n", stats.PacketsRecv, stats.AvgRtt)
+				hub.Broadcast(utils.WebSocketEvent{
+					Type:    "network_status",
+					Payload: map[string]string{"status": "online"},
+				})
+			}
+			consecutiveFailures = 0
+			isCurrentlyOffline = false
+		}
+	}
+}
+
 func main() {
 	wsHub := ws.NewWebSocketHub()
+	go networkChecker(wsHub)
 
 	btManager, err := bluetooth.NewBluetoothManager(wsHub)
 	if err != nil {
