@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	probing "github.com/prometheus-community/pro-bing"
 	"github.com/vishvananda/netlink"
 
+	ping "github.com/prometheus-community/pro-bing"
 	"github.com/usenocturne/nocturned/bluetooth"
 	"github.com/usenocturne/nocturned/utils"
 	"github.com/usenocturne/nocturned/ws"
@@ -53,66 +53,80 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func networkChecker(hub *ws.WebSocketHub) {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
+	const (
+		host          = "1.1.1.1"
+		interval      = 1 // seconds
+		failThreshold = 1
+	)
 
-	consecutiveFailures := 0
-	isCurrentlyOffline := false
-	const targetHost = "api.spotify.com"
-	const failureThreshold = 3
-	const pingTimeout = 2 * time.Second
+	failCount := 0
 
-	for range ticker.C {
-		pinger, err := probing.NewPinger(targetHost)
-		if err != nil {
-			consecutiveFailures++
-			if consecutiveFailures >= failureThreshold && !isCurrentlyOffline {
-				isCurrentlyOffline = true
-				hub.Broadcast(utils.WebSocketEvent{
-					Type:    "network_status",
-					Payload: map[string]string{"status": "offline", "reason": "pinger_creation_failed"},
-				})
-			}
-			continue
-		}
-
+	isOnline := false
+	pinger, err := ping.NewPinger(host)
+	if err == nil {
 		pinger.Count = 1
-		pinger.Timeout = pingTimeout
-
+		pinger.Timeout = 1 * time.Second
+		pinger.Interval = 1 * time.Second
+		pinger.SetPrivileged(true)
 		err = pinger.Run()
-		stats := pinger.Statistics()
-
-		if err != nil || stats.PacketsRecv == 0 {
-			consecutiveFailures++
-			if consecutiveFailures >= failureThreshold && !isCurrentlyOffline {
-				isCurrentlyOffline = true
-				errMsg := "packets_not_received"
-				if err != nil {
-					errMsg = err.Error()
-				}
-				log.Printf("network offline (ping failed for %d attempts). PacketsSent: %d, PacketsRecv: %d, Error: %s\n", consecutiveFailures, stats.PacketsSent, stats.PacketsRecv, errMsg)
-				hub.Broadcast(utils.WebSocketEvent{
-					Type:    "network_status",
-					Payload: map[string]string{"status": "offline", "reason": "ping_failed"},
-				})
-			}
+		if err == nil && pinger.Statistics().PacketsRecv > 0 {
+			hub.Broadcast(utils.WebSocketEvent{
+				Type:    "network_status",
+				Payload: map[string]string{"status": "online"},
+			})
+			isOnline = true
 		} else {
-			if isCurrentlyOffline {
-				log.Printf("network online. PacketsRecv: %d, AvgRtt: %v\n", stats.PacketsRecv, stats.AvgRtt)
-				hub.Broadcast(utils.WebSocketEvent{
-					Type:    "network_status",
-					Payload: map[string]string{"status": "online"},
-				})
-			}
-			consecutiveFailures = 0
-			isCurrentlyOffline = false
+			hub.Broadcast(utils.WebSocketEvent{
+				Type:    "network_status",
+				Payload: map[string]string{"status": "offline"},
+			})
 		}
+	} else {
+		hub.Broadcast(utils.WebSocketEvent{
+			Type:    "network_status",
+			Payload: map[string]string{"status": "offline"},
+		})
+	}
+
+	for {
+		pinger, err := ping.NewPinger(host)
+		if err != nil {
+			log.Printf("Failed to create pinger: %v", err)
+			failCount++
+		} else {
+			pinger.Count = 1
+			pinger.Timeout = 1 * time.Second
+			pinger.Interval = 1 * time.Second
+			pinger.SetPrivileged(true)
+			err = pinger.Run()
+			if err != nil || pinger.Statistics().PacketsRecv == 0 {
+				failCount++
+			} else {
+				failCount = 0
+				if !isOnline {
+					hub.Broadcast(utils.WebSocketEvent{
+						Type:    "network_status",
+						Payload: map[string]string{"status": "online"},
+					})
+					isOnline = true
+				}
+			}
+		}
+
+		if failCount >= failThreshold && isOnline {
+			hub.Broadcast(utils.WebSocketEvent{
+				Type:    "network_status",
+				Payload: map[string]string{"status": "offline"},
+			})
+			isOnline = false
+		}
+
+		time.Sleep(interval * time.Second)
 	}
 }
 
 func main() {
 	wsHub := ws.NewWebSocketHub()
-	go networkChecker(wsHub)
 
 	btManager, err := bluetooth.NewBluetoothManager(wsHub)
 	if err != nil {
@@ -669,6 +683,8 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	}))
+
+	go networkChecker(wsHub)
 
 	port := os.Getenv("PORT")
 	if port == "" {
