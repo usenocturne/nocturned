@@ -620,34 +620,6 @@ func main() {
 		}
 	}))
 
-	// GET /bluetooth/media
-	http.HandleFunc("/bluetooth/media", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "GET" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
-			return
-		}
-
-		player, err := btManager.GetActiveMediaPlayer()
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to get media player info: " + err.Error()})
-			return
-		}
-
-		if player == nil {
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "No active media player found"})
-			return
-		}
-
-		if err := json.NewEncoder(w).Encode(player); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to encode response: " + err.Error()})
-			return
-		}
-	}))
-
 	go networkChecker(wsHub)
 
 	port := os.Getenv("PORT")
