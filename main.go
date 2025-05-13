@@ -30,6 +30,10 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+type NetworkStatusResponse struct {
+	Status string `json:"status"`
+}
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true
@@ -56,7 +60,7 @@ func networkChecker(hub *ws.WebSocketHub) {
 	const (
 		host          = "1.1.1.1"
 		interval      = 1 // seconds
-		failThreshold = 1
+		failThreshold = 3
 	)
 
 	failCount := 0
@@ -70,12 +74,14 @@ func networkChecker(hub *ws.WebSocketHub) {
 		pinger.SetPrivileged(true)
 		err = pinger.Run()
 		if err == nil && pinger.Statistics().PacketsRecv > 0 {
+			currentNetworkStatus = "online"
 			hub.Broadcast(utils.WebSocketEvent{
 				Type:    "network_status",
 				Payload: map[string]string{"status": "online"},
 			})
 			isOnline = true
 		} else {
+			currentNetworkStatus = "offline"
 			hub.Broadcast(utils.WebSocketEvent{
 				Type:    "network_status",
 				Payload: map[string]string{"status": "offline"},
@@ -104,6 +110,7 @@ func networkChecker(hub *ws.WebSocketHub) {
 			} else {
 				failCount = 0
 				if !isOnline {
+					currentNetworkStatus = "online"
 					hub.Broadcast(utils.WebSocketEvent{
 						Type:    "network_status",
 						Payload: map[string]string{"status": "online"},
@@ -114,6 +121,7 @@ func networkChecker(hub *ws.WebSocketHub) {
 		}
 
 		if failCount >= failThreshold && isOnline {
+			currentNetworkStatus = "offline"
 			hub.Broadcast(utils.WebSocketEvent{
 				Type:    "network_status",
 				Payload: map[string]string{"status": "offline"},
@@ -123,6 +131,16 @@ func networkChecker(hub *ws.WebSocketHub) {
 
 		time.Sleep(interval * time.Second)
 	}
+}
+
+var currentNetworkStatus = "offline"
+
+func networkStatusHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	response := NetworkStatusResponse{
+		Status: currentNetworkStatus,
+	}
+	json.NewEncoder(w).Encode(response)
 }
 
 func main() {
@@ -621,6 +639,20 @@ func main() {
 	}))
 
 	go networkChecker(wsHub)
+
+	// GET /network/status
+	http.HandleFunc("/network/status", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			return
+		}
+		
+		response := NetworkStatusResponse{
+			Status: currentNetworkStatus,
+		}
+		json.NewEncoder(w).Encode(response)
+	}))
 
 	port := os.Getenv("PORT")
 	if port == "" {
