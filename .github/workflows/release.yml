@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build nocturned
-        run: GOOS=linux GOARCH=arm64 go build
+        run: GOOS=linux GOARCH=arm64 GOARM=7 go build -ldflags "-s -w"
 
       - name: Export SHA256 sum
         run: sha256sum nocturned > nocturned.sha256
