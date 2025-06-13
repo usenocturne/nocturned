@@ -65,10 +65,7 @@ func ResetCounter() error {
 		name string
 		args []string
 	}{
-		{"mount", []string{"-o", "remount,rw", "/uboot"}},
-		{"uboot_tool", []string{"reset_counter"}},
-		{"sync", []string{}},
-		{"mount", []string{"-o", "remount,ro", "/uboot"}},
+		{"phb", []string{"-r", "1"}},
 	}
 
 	for _, cmd := range commands {
