@@ -33,13 +33,13 @@ nix develop
 
 This software was made possible only through the following individuals and open source programs:
 
-- [Dominic Frye](https://x.com/itsnebulalol)
+- [Dominic Frye](https://github.com/itsnebulalol)
 - [shadow](https://github.com/68p)
 
 ## Related
 
-[nocturne-image](https://github.com/usenocturne/nocturne-image) - The flashable Void Linux image for the Car Thing
-[nocturne-ui](https://github.com/usenocturne/nocturne-ui) - The frontend that interfaces with nocturned
+- [nocturne-image](https://github.com/usenocturne/nocturne-image) - The flashable Void Linux image for the Car Thing
+- [nocturne-ui](https://github.com/usenocturne/nocturne-ui) - The frontend that interfaces with nocturned
 
 ## License
 
