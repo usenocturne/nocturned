@@ -33,13 +33,13 @@ nix develop
 
 This software was made possible only through the following individuals and open source programs:
 
-- [Dominic Frye](https://x.com/itsnebulalol), for developing nocturned
-- [shadow](https://github.com/68p), for testing
+- [Dominic Frye](https://x.com/itsnebulalol)
+- [shadow](https://github.com/68p)
 
 ## Related
 
-[nocturne-image/nixos](https://github.com/usenocturne/nocturne-image/tree/nixos) - The work-in-progress NixOS image for Nocturne
-[nocturne-ui](https://github.com/usenocturne/nocturne-ui) - The frontend that will be using nocturned
+[nocturne-image](https://github.com/usenocturne/nocturne-image) - The flashable Void Linux image for the Car Thing
+[nocturne-ui](https://github.com/usenocturne/nocturne-ui) - The frontend that interfaces with nocturned
 
 ## License
 
@@ -47,3 +47,11 @@ This project is licensed under the **MIT** license.
 
 We kindly ask that any modifications or distributions made outside of direct forks from this repository include attribution to the original project in the README, as we have worked hard on this. :)
 
+---
+
+> © 2025 Nocturne.
+
+> "Spotify" and "Car Thing" are trademarks of Spotify AB. This software is not affiliated with or endorsed by Spotify AB.
+
+> [usenocturne.com](https://usenocturne.com) &nbsp;&middot;&nbsp;
+> GitHub [@usenocturne](https://github.com/usenocturne)
