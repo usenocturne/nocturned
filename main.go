@@ -557,6 +557,55 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	}))
 
+	// POST /device/date/settimezone
+	http.HandleFunc("/device/date/settimezone", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			return
+		}
+
+		resp, err := http.Get("https://api.usenocturne.com/v1/timezone")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to fetch timezone: " + err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+
+		var requestData struct {
+			Timezone string `json:"timezone"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&requestData); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to decode timezone response: " + err.Error()})
+			return
+		}
+
+		if err := utils.SetTimezone(requestData.Timezone); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	}))
+
+	// GET /device/date
+	http.HandleFunc("/device/date", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			return
+		}
+
+		t := time.Now()
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"time": t.Format(time.TimeOnly), "date": t.Format(time.DateOnly)})
+	}))
+
 	// POST /update
 	http.HandleFunc("/update", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {

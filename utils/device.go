@@ -131,3 +131,18 @@ func Reboot() error {
 
 	return nil
 }
+
+func SetTimezone(timezone string) error {
+	src := fmt.Sprintf("/usr/share/zoneinfo/%s", timezone)
+	dst := "/var/local/etc/localtime"
+
+	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove existing localtime: %w", err)
+	}
+
+	if err := os.Symlink(src, dst); err != nil {
+		return fmt.Errorf("failed to create symlink for timezone: %w", err)
+	}
+
+	return nil
+}
