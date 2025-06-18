@@ -135,14 +135,6 @@ func networkChecker(hub *ws.WebSocketHub) {
 
 var currentNetworkStatus = "offline"
 
-func networkStatusHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	response := NetworkStatusResponse{
-		Status: currentNetworkStatus,
-	}
-	json.NewEncoder(w).Encode(response)
-}
-
 func main() {
 	wsHub := ws.NewWebSocketHub()
 
@@ -193,9 +185,10 @@ func main() {
 			json.NewEncoder(w).Encode(ErrorResponse{Error: "Error reading version file"})
 			return
 		}
+		version := strings.TrimSpace(string(content))
 
 		response := InfoResponse{
-			Version: string(content),
+			Version: version,
 		}
 
 		if err := json.NewEncoder(w).Encode(response); err != nil {
