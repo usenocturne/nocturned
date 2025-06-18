@@ -589,7 +589,7 @@ func main() {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+		json.NewEncoder(w).Encode(map[string]string{"status": "success", "timezone": requestData.Timezone})
 	}))
 
 	// GET /device/date
