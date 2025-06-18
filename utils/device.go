@@ -76,3 +76,58 @@ func ResetCounter() error {
 
 	return nil
 }
+
+func FactoryReset() error {
+	commands := []struct {
+		name string
+		args []string
+	}{
+		{"uenv", []string{"set", "firstboot", "1"}},
+		{"sync", nil},
+		{"shutdown", []string{"-r", "now"}},
+	}
+
+	for _, cmd := range commands {
+		if output, err := ExecuteCommand(cmd.name, cmd.args...); err != nil {
+			return fmt.Errorf("failed to execute command '%s': %v (output: %s)", cmd.name, err, output)
+		}
+	}
+
+	return nil
+}
+
+func Shutdown() error {
+	commands := []struct {
+		name string
+		args []string
+	}{
+		{"sync", nil},
+		{"shutdown", []string{"now"}},
+	}
+
+	for _, cmd := range commands {
+		if output, err := ExecuteCommand(cmd.name, cmd.args...); err != nil {
+			return fmt.Errorf("failed to execute command '%s': %v (output: %s)", cmd.name, err, output)
+		}
+	}
+
+	return nil
+}
+
+func Reboot() error {
+	commands := []struct {
+		name string
+		args []string
+	}{
+		{"sync", nil},
+		{"shutdown", []string{"-r", "now"}},
+	}
+
+	for _, cmd := range commands {
+		if output, err := ExecuteCommand(cmd.name, cmd.args...); err != nil {
+			return fmt.Errorf("failed to execute command '%s': %v (output: %s)", cmd.name, err, output)
+		}
+	}
+
+	return nil
+}

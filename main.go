@@ -510,6 +510,60 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	}))
 
+	// POST /device/factoryreset
+	http.HandleFunc("/device/factoryreset", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			return
+		}
+
+		if err := utils.FactoryReset(); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	}))
+
+	// POST /device/power/shutdown
+	http.HandleFunc("/device/power/shutdown", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			return
+		}
+
+		if err := utils.Shutdown(); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	}))
+
+	// POST /device/power/reboot
+	http.HandleFunc("/device/power/reboot", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			return
+		}
+
+		if err := utils.Reboot(); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	}))
+
 	// POST /update
 	http.HandleFunc("/update", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
@@ -647,7 +701,7 @@ func main() {
 			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
 			return
 		}
-		
+
 		response := NetworkStatusResponse{
 			Status: currentNetworkStatus,
 		}
