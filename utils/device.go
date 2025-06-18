@@ -65,7 +65,7 @@ func ResetCounter() error {
 		name string
 		args []string
 	}{
-		{"phb", []string{"-r", "1"}},
+		{"wingman", []string{"ab", "--boot-result", "1"}},
 	}
 
 	for _, cmd := range commands {

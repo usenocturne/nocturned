@@ -3,14 +3,13 @@ package utils
 import (
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"sync"
 	"time"
-
-	alpine_builder "gitlab.com/raspi-alpine/go-raspi-alpine"
 )
 
 type UpdateRequest struct {
@@ -47,8 +46,8 @@ type OKResponse struct {
 var (
 	updateStatusMutex sync.Mutex
 	currentStatus     UpdateStatus
-	rootPartitionA    = "/dev/mmcblk0p2"
-	rootPartitionB    = "/dev/mmcblk0p3"
+	rootPartitionA    = "/dev/system_a"
+	rootPartitionB    = "/dev/system_b"
 )
 
 type progressReader struct {
@@ -87,11 +86,11 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func ExecuteCommand(name string, args ...string) (string, error) {
+func ExecuteCommand(name string, args ...string) ([]byte, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Env = os.Environ()
 	o, err := cmd.CombinedOutput()
-	return string(o), err
+	return o, err
 }
 
 func SetUpdateStatus(inProgress bool, stage string, errorMsg string) {
@@ -133,10 +132,29 @@ func UpdateSystem(image string, sum string, onProgress func(ProgressMessage)) er
 		return fmt.Errorf("failed to seek image file: %w", err)
 	}
 
-	// A=2, B=3
-	active := alpine_builder.UBootActive()
+	output, err := ExecuteCommand("wingman", "ab", "--json")
+	if err != nil {
+		return fmt.Errorf("failed to execute wingman: %w", err)
+	}
+
+	type JSONOutput struct {
+		ActiveSlot       int         `json:"active_slot"`
+		ActiveSlotLetter string      `json:"active_slot_letter"`
+		VersionMajor     uint8       `json:"version_major"`
+		VersionMinor     uint8       `json:"version_minor"`
+		Slots            [2]struct{} `json:"slots"`
+		CRC32            uint32      `json:"crc32"`
+	}
+
+	var abInfo JSONOutput
+	if err := json.Unmarshal(output, &abInfo); err != nil {
+		return fmt.Errorf("failed to parse wingman ab output: %w", err)
+	}
+
+	// A=0, B=1
+	active := abInfo.ActiveSlot
 	rootPart := rootPartitionA
-	if active == 2 {
+	if active == 1 {
 		rootPart = rootPartitionB
 	}
 
@@ -195,9 +213,11 @@ func UpdateSystem(image string, sum string, onProgress func(ProgressMessage)) er
 		return fmt.Errorf("failed to copy image: %w", err)
 	}
 
-	if active == 2 {
-		return alpine_builder.UBootSetActive(3)
+	if active == 0 {
+		_, err := ExecuteCommand("wingman", "ab", "--slot", "1")
+		return err
 	} else {
-		return alpine_builder.UBootSetActive(2)
+		_, err := ExecuteCommand("wingman", "ab", "--slot", "0")
+		return err
 	}
 }
