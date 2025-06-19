@@ -13,20 +13,19 @@ import (
 	"github.com/vishvananda/netlink"
 
 	"github.com/usenocturne/nocturned/utils"
-	"github.com/usenocturne/nocturned/ws"
 )
 
 type BluetoothManager struct {
-	conn            *dbus.Conn
-	adapter         dbus.ObjectPath
-	agent           *Agent
-	mu              sync.Mutex
-	pairingRequests chan utils.PairingRequest
-	wsHub           *ws.WebSocketHub
+	conn               *dbus.Conn
+	adapter            dbus.ObjectPath
+	agent              *Agent
+	mu                 sync.Mutex
+	pairingRequests    chan utils.PairingRequest
+	wsHub              *utils.WebSocketHub
 	pendingDisconnects sync.Map
 }
 
-func NewBluetoothManager(wsHub *ws.WebSocketHub) (*BluetoothManager, error) {
+func NewBluetoothManager(wsHub *utils.WebSocketHub) (*BluetoothManager, error) {
 	conn, err := dbus.SystemBus()
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to system bus: %v", err)
@@ -389,7 +388,7 @@ func (m *BluetoothManager) ConnectDevice(address string) error {
 
 	if err == nil {
 		log.Printf("Successfully connected to device %s", address)
-		
+
 		go func() {
 			deviceInfo, err := m.GetDeviceInfo(address)
 			if err != nil {

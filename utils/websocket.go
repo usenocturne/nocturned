@@ -1,12 +1,10 @@
-package ws
+package utils
 
 import (
 	"log"
 	"sync"
 
 	"github.com/gorilla/websocket"
-
-	"github.com/usenocturne/nocturned/utils"
 )
 
 type WebSocketHub struct {
@@ -35,10 +33,10 @@ func (h *WebSocketHub) RemoveClient(conn *websocket.Conn) {
 	}
 }
 
-func (h *WebSocketHub) Broadcast(event utils.WebSocketEvent) {
+func (h *WebSocketHub) Broadcast(event WebSocketEvent) {
 	h.mu.Lock()
 	var clientsToRemove []*websocket.Conn
-	
+
 	for conn := range h.clients {
 		if err := conn.WriteJSON(event); err != nil {
 			log.Printf("Client disconnected: %v", err)

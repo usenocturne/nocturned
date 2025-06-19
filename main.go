@@ -19,7 +19,6 @@ import (
 	ping "github.com/prometheus-community/pro-bing"
 	"github.com/usenocturne/nocturned/bluetooth"
 	"github.com/usenocturne/nocturned/utils"
-	"github.com/usenocturne/nocturned/ws"
 )
 
 type InfoResponse struct {
@@ -56,7 +55,7 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func networkChecker(hub *ws.WebSocketHub) {
+func networkChecker(hub *utils.WebSocketHub) {
 	const (
 		host          = "1.1.1.1"
 		interval      = 1 // seconds
@@ -136,7 +135,7 @@ func networkChecker(hub *ws.WebSocketHub) {
 var currentNetworkStatus = "offline"
 
 func main() {
-	wsHub := ws.NewWebSocketHub()
+	wsHub := utils.NewWebSocketHub()
 
 	btManager, err := bluetooth.NewBluetoothManager(wsHub)
 	if err != nil {
