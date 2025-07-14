@@ -7,14 +7,7 @@ toolchain go1.23.9
 require (
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/prometheus-community/pro-bing v0.7.0
 	github.com/vishvananda/netlink v1.3.0
-)
-
-require (
-	github.com/google/uuid v1.6.0 // indirect
-	golang.org/x/net v0.38.0 // indirect
-	golang.org/x/sync v0.13.0 // indirect
 )
 
 require (

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -16,7 +17,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/vishvananda/netlink"
 
-	ping "github.com/prometheus-community/pro-bing"
 	"github.com/usenocturne/nocturned/bluetooth"
 	"github.com/usenocturne/nocturned/utils"
 )
@@ -59,34 +59,27 @@ func networkChecker(hub *utils.WebSocketHub) {
 	const (
 		host          = "1.1.1.1"
 		interval      = 1 // seconds
-		failThreshold = 3
+		failThreshold = 5
 	)
 
 	failCount := 0
-
 	isOnline := false
-	pinger, err := ping.NewPinger(host)
-	if err == nil {
-		pinger.Count = 1
-		pinger.Timeout = 1 * time.Second
-		pinger.Interval = 1 * time.Second
-		pinger.SetPrivileged(true)
-		err = pinger.Run()
-		if err == nil && pinger.Statistics().PacketsRecv > 0 {
-			currentNetworkStatus = "online"
-			hub.Broadcast(utils.WebSocketEvent{
-				Type:    "network_status",
-				Payload: map[string]string{"status": "online"},
-			})
-			isOnline = true
-		} else {
-			currentNetworkStatus = "offline"
-			hub.Broadcast(utils.WebSocketEvent{
-				Type:    "network_status",
-				Payload: map[string]string{"status": "offline"},
-			})
-		}
+
+	pingHost := func() bool {
+		cmd := exec.Command("ping", "-c", "1", "-W", "1", host)
+		err := cmd.Run()
+		return err == nil
+	}
+
+	if pingHost() {
+		currentNetworkStatus = "online"
+		hub.Broadcast(utils.WebSocketEvent{
+			Type:    "network_status",
+			Payload: map[string]string{"status": "online"},
+		})
+		isOnline = true
 	} else {
+		currentNetworkStatus = "offline"
 		hub.Broadcast(utils.WebSocketEvent{
 			Type:    "network_status",
 			Payload: map[string]string{"status": "offline"},
@@ -94,29 +87,18 @@ func networkChecker(hub *utils.WebSocketHub) {
 	}
 
 	for {
-		pinger, err := ping.NewPinger(host)
-		if err != nil {
-			log.Printf("Failed to create pinger: %v", err)
-			failCount++
-		} else {
-			pinger.Count = 1
-			pinger.Timeout = 1 * time.Second
-			pinger.Interval = 1 * time.Second
-			pinger.SetPrivileged(true)
-			err = pinger.Run()
-			if err != nil || pinger.Statistics().PacketsRecv == 0 {
-				failCount++
-			} else {
-				failCount = 0
-				if !isOnline {
-					currentNetworkStatus = "online"
-					hub.Broadcast(utils.WebSocketEvent{
-						Type:    "network_status",
-						Payload: map[string]string{"status": "online"},
-					})
-					isOnline = true
-				}
+		if pingHost() {
+			failCount = 0
+			if !isOnline {
+				currentNetworkStatus = "online"
+				hub.Broadcast(utils.WebSocketEvent{
+					Type:    "network_status",
+					Payload: map[string]string{"status": "online"},
+				})
+				isOnline = true
 			}
+		} else {
+			failCount++
 		}
 
 		if failCount >= failThreshold && isOnline {
@@ -630,7 +612,7 @@ func main() {
 		go func() {
 			utils.SetUpdateStatus(true, "download", "")
 
-			tempDir, err := os.MkdirTemp("/data/tmp", "update-*")
+			tempDir, err := os.MkdirTemp("/var/tmp", "update-*")
 			if err != nil {
 				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to create temp directory: %v", err))
 				return
