@@ -581,10 +581,28 @@ func main() {
 			return
 		}
 
-		t := time.Now()
+		cmd := exec.Command("date", "+%Y-%m-%d|%T")
+		output, err := cmd.Output()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to get date: " + err.Error()})
+			return
+		}
+
+		parts := strings.Split(strings.TrimSpace(string(output)), "|")
+		if len(parts) != 2 {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Unexpected date output"})
+			return
+		}
+
+		resp := map[string]string{
+			"date": parts[0],
+			"time": parts[1],
+		}
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"time": t.Format(time.TimeOnly), "date": t.Format(time.DateOnly)})
+		json.NewEncoder(w).Encode(resp)
 	}))
 
 	// POST /update
