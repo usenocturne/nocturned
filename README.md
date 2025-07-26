@@ -1,33 +1,43 @@
-
 <h1 align="center">
   <br>
-  <img src="https://raw.githubusercontent.com/usenocturne/nocturne-image/refs/heads/main/pictures/nocturne-logo.png" alt="Nocturne" width="200">
+  <img src="https://usenocturne.com/images/logo.png" alt="Nocturne" width="200">
   <br>
   nocturned
   <br>
 </h1>
 
-<h4 align="center">Host communication daemon for <a href="https://github.com/usenocturne/nocturne-ui" target="_blank">nocturne-ui</a>.</h4>
+<p align="center">Local daemon for real-time web/host communication</p>
 
 <p align="center">
-  <a href="#local-development-setup">Local Development Setup</a> •
+  <a href="#building">Building</a> •
   <a href="#credits">Credits</a> •
+  <a href="#donate">Donate</a> •
   <a href="#related">Related</a> •
   <a href="#license">License</a>
 </p>
 
-## Local Development Setup
+## Building
 
-1. Clone the repository:
-```bash
-git clone https://github.com/usenocturne/nocturned.git
-cd nocturned
+Use the `Justfile`. `just build` will output a Linux armv7 binary at `nocturned`. Alternatively, you may use (or adjust) the following command: `GOOS=linux GOARCH=arm GOARM=7 go build -ldflags "-s -w" -o nocturned`.
+
+```
+$ just -l
+Available recipes:
+  build
 ```
 
-2. Use Nix devshells:
-```bash
-nix develop
-```
+## Donate
+
+Nocturne is a massive endeavor, and the team has spent every day over the last year making it a reality out of our passion for creating something that people like you love to use.
+
+All donations are split between the three members of the Nocturne team and go towards the development of future features. We are so grateful for your support!
+
+[Donation Page](https://usenocturne.com/donate)
+
+## Related
+
+- [nocturne](https://github.com/usenocturne/nocturne)
+- [nocturne-ui](https://github.com/usenocturne/nocturne-ui) - Nocturne's standalone web application written with Vite + React
 
 ## Credits
 
@@ -35,11 +45,6 @@ This software was made possible only through the following individuals and open 
 
 - [Dominic Frye](https://github.com/itsnebulalol)
 - [shadow](https://github.com/68p)
-
-## Related
-
-- [nocturne-image](https://github.com/usenocturne/nocturne-image) - The flashable Void Linux image for the Car Thing
-- [nocturne-ui](https://github.com/usenocturne/nocturne-ui) - The frontend that interfaces with nocturned
 
 ## License
 
@@ -49,7 +54,7 @@ We kindly ask that any modifications or distributions made outside of direct for
 
 ---
 
-> © 2025 Nocturne.
+> © 2025 Vanta Labs.
 
 > "Spotify" and "Car Thing" are trademarks of Spotify AB. This software is not affiliated with or endorsed by Spotify AB.
 
