@@ -101,8 +101,7 @@ func Shutdown() error {
 		name string
 		args []string
 	}{
-		{"sync", nil},
-		{"shutdown", []string{"now"}},
+		{"halt", nil},
 	}
 
 	for _, cmd := range commands {
@@ -119,8 +118,7 @@ func Reboot() error {
 		name string
 		args []string
 	}{
-		{"sync", nil},
-		{"shutdown", []string{"-r", "now"}},
+		{"reboot", nil},
 	}
 
 	for _, cmd := range commands {
