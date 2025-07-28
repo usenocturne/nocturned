@@ -22,6 +22,7 @@ func (h *WebSocketHub) AddClient(conn *websocket.Conn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.clients[conn] = true
+	log.Printf("WebSocket client connected. Total clients: %d", len(h.clients))
 }
 
 func (h *WebSocketHub) RemoveClient(conn *websocket.Conn) {
@@ -30,11 +31,14 @@ func (h *WebSocketHub) RemoveClient(conn *websocket.Conn) {
 	if _, ok := h.clients[conn]; ok {
 		delete(h.clients, conn)
 		conn.Close()
+		log.Printf("WebSocket client disconnected. Total clients: %d", len(h.clients))
 	}
 }
 
 func (h *WebSocketHub) Broadcast(event WebSocketEvent) {
 	h.mu.Lock()
+	clientCount := len(h.clients)
+	log.Printf("Broadcasting to %d clients: %+v", clientCount, event)
 	var clientsToRemove []*websocket.Conn
 
 	for conn := range h.clients {

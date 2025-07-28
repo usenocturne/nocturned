@@ -637,7 +637,7 @@ func main() {
 			}
 			defer os.RemoveAll(tempDir)
 
-			imgPath := filepath.Join(tempDir, "update.img.gz")
+			imgPath := filepath.Join(tempDir, "update.tar.zst")
 			imgResp, err := http.Get(requestData.ImageURL)
 			if err != nil {
 				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to download image: %v", err))

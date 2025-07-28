@@ -1,15 +1,17 @@
 package utils
 
 import (
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 type UpdateRequest struct {
@@ -153,50 +155,41 @@ func UpdateSystem(image string, sum string, onProgress func(ProgressMessage)) er
 
 	// A=0, B=1
 	active := abInfo.ActiveSlot
-	rootPart := rootPartitionA
+	rootPart := rootPartitionB
 	if active == 1 {
-		rootPart = rootPartitionB
+		rootPart = rootPartitionA
 	}
 
-	inDecompress, err := gzip.NewReader(imgFile)
+	mountPoint, err := os.MkdirTemp("/var/tmp", "rootfs-*")
 	if err != nil {
-		return fmt.Errorf("failed to decompress image file: %w", err)
+		return fmt.Errorf("failed to create mount point: %w", err)
 	}
-	defer inDecompress.Close()
+	defer os.RemoveAll(mountPoint)
 
-	tempFile, err := os.CreateTemp("", "uncompressed-*")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
+	if _, err := ExecuteCommand("mount", "-o", "rw", rootPart, mountPoint); err != nil {
+		return fmt.Errorf("failed to mount root partition: %w", err)
 	}
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
-
-	if _, err := io.Copy(tempFile, inDecompress); err != nil {
-		return fmt.Errorf("failed to decompress image: %w", err)
-	}
-
-	uncompressedSize, err := tempFile.Seek(0, 2)
-	if err != nil {
-		return fmt.Errorf("failed to get uncompressed size: %w", err)
-	}
+	defer ExecuteCommand("umount", mountPoint)
 
 	if _, err := imgFile.Seek(0, 0); err != nil {
 		return fmt.Errorf("failed to seek image file: %w", err)
 	}
 
-	inDecompress, err = gzip.NewReader(imgFile)
-	if err != nil {
-		return fmt.Errorf("failed to decompress image file: %w", err)
+	var tarStream io.Reader
+	if zstdReader, err := zstd.NewReader(imgFile); err == nil {
+		defer zstdReader.Close()
+		tarStream = zstdReader
+	} else {
+		if _, err := imgFile.Seek(0, 0); err != nil {
+			return fmt.Errorf("failed to seek image file: %w", err)
+		}
+		tarStream = imgFile
 	}
-	defer inDecompress.Close()
 
-	out, err := os.OpenFile(rootPart, os.O_WRONLY|os.O_TRUNC|os.O_SYNC, os.ModePerm)
-	if err != nil {
-		return fmt.Errorf("failed to open flash device: %w", err)
-	}
-	defer out.Close()
+	stat, _ := imgFile.Stat()
+	totalSize := stat.Size()
 
-	progressReader := NewProgressReader(inDecompress, uncompressedSize, func(complete, total int64, speed float64) {
+	progressReader := NewProgressReader(tarStream, totalSize, func(complete, total int64, speed float64) {
 		percent := float64(complete) / float64(total) * 100
 		onProgress(ProgressMessage{
 			Type:          "progress",
@@ -208,9 +201,14 @@ func UpdateSystem(image string, sum string, onProgress func(ProgressMessage)) er
 		})
 	})
 
-	_, err = io.Copy(out, progressReader)
-	if err != nil {
-		return fmt.Errorf("failed to copy image: %w", err)
+	tarCmd := exec.Command("tar", "-xpf", "-", "-C", mountPoint)
+	tarCmd.Stdin = progressReader
+	if output, err := tarCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to extract tar overlay: %v (output: %s)", err, strings.TrimSpace(string(output)))
+	}
+
+	if _, err := ExecuteCommand("sync"); err != nil {
+		return fmt.Errorf("failed to sync filesystem: %w", err)
 	}
 
 	if active == 0 {
