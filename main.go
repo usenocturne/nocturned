@@ -670,28 +670,8 @@ func main() {
 				return
 			}
 
-			sumResp, err := http.Get(requestData.SumURL)
-			if err != nil {
-				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to download checksum: %v", err))
-				return
-			}
-			defer sumResp.Body.Close()
-
-			sumBytes, err := io.ReadAll(sumResp.Body)
-			if err != nil {
-				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to read checksum: %v", err))
-				return
-			}
-
-			sumParts := strings.Fields(string(sumBytes))
-			if len(sumParts) != 2 {
-				utils.SetUpdateStatus(false, "", "Invalid checksum format")
-				return
-			}
-			sum := sumParts[0]
-
 			utils.SetUpdateStatus(true, "flash", "")
-			if err := utils.UpdateSystem(imgPath, sum, broadcastProgress); err != nil {
+			if err := utils.UpdateSystem(imgPath, requestData.Sum, broadcastProgress); err != nil {
 				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to update system: %v", err))
 				broadcastCompletion(utils.CompletionMessage{
 					Type:    "completion",

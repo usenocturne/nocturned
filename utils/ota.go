@@ -16,7 +16,7 @@ import (
 
 type UpdateRequest struct {
 	ImageURL string `json:"image_url"`
-	SumURL   string `json:"sum_url"`
+	Sum      string `json:"sum"`
 }
 
 type UpdateStatus struct {
