@@ -520,6 +520,79 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 	}))
 
+	// POST /device/exec
+	http.HandleFunc("/device/exec", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			return
+		}
+
+		var requestData struct {
+			Commands []string `json:"commands"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Invalid request body: " + err.Error()})
+			return
+		}
+
+		if len(requestData.Commands) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "No commands provided"})
+			return
+		}
+
+		type CommandResult struct {
+			Command  string `json:"command"`
+			Output   string `json:"output"`
+			Error    string `json:"error,omitempty"`
+			ExitCode int    `json:"exit_code"`
+		}
+
+		var results []CommandResult
+
+		for _, cmdStr := range requestData.Commands {
+			parts := strings.Fields(cmdStr)
+			if len(parts) == 0 {
+				results = append(results, CommandResult{
+					Command:  cmdStr,
+					Error:    "Empty command",
+					ExitCode: -1,
+				})
+				continue
+			}
+
+			cmd := exec.Command(parts[0], parts[1:]...)
+			output, err := cmd.CombinedOutput()
+			exitCode := 0
+			if err != nil {
+				if exitError, ok := err.(*exec.ExitError); ok {
+					exitCode = exitError.ExitCode()
+				} else {
+					exitCode = -1
+				}
+			}
+
+			result := CommandResult{
+				Command:  cmdStr,
+				Output:   string(output),
+				ExitCode: exitCode,
+			}
+			if err != nil {
+				result.Error = err.Error()
+			}
+
+			results = append(results, result)
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "success",
+			"results": results,
+		})
+	}))
+
 	// POST /device/power/reboot
 	http.HandleFunc("/device/power/reboot", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
