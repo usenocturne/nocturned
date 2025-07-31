@@ -22,7 +22,8 @@ import (
 )
 
 type InfoResponse struct {
-	Version string `json:"version"`
+	Version string  `json:"version"`
+	Serial  *string `json:"serial"`
 }
 
 type ErrorResponse struct {
@@ -160,16 +161,26 @@ func main() {
 			return
 		}
 
-		content, err := os.ReadFile("/etc/nocturne/version.txt")
+		versionContent, err := os.ReadFile("/etc/nocturne/version.txt")
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(ErrorResponse{Error: "Error reading version file"})
 			return
 		}
-		version := strings.TrimSpace(string(content))
+		version := strings.TrimSpace(string(versionContent))
+
+		serialContent, err := os.ReadFile("/sys/class/efuse/usid")
+		var serial *string
+		if err != nil {
+			serial = nil
+		} else {
+			s := strings.TrimSpace(string(serialContent))
+			serial = &s
+		}
 
 		response := InfoResponse{
 			Version: version,
+			Serial:  serial,
 		}
 
 		if err := json.NewEncoder(w).Encode(response); err != nil {
