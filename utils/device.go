@@ -1,18 +1,43 @@
 package utils
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 )
 
 const (
 	brightnessPath     = "/sys/class/backlight/aml-bl/brightness"
-	brightnessSavePath = "/data/etc/nocturne/brightness.txt"
+	brightnessSavePath = "/var/lib/brightness.json"
 	maxBrightness      = 255
 	minBrightness      = 1
 )
+
+type BrightnessConfig struct {
+	Auto       bool `json:"auto"`
+	Brightness int  `json:"brightness"`
+}
+
+func GetBrightnessConfig() (BrightnessConfig, error) {
+	data, err := os.ReadFile(brightnessSavePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return BrightnessConfig{
+				Auto:       true,
+				Brightness: 180,
+			}, nil
+		}
+		return BrightnessConfig{}, fmt.Errorf("failed to read brightness config: %w", err)
+	}
+
+	var config BrightnessConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return BrightnessConfig{}, fmt.Errorf("failed to parse brightness config: %w", err)
+	}
+
+	return config, nil
+}
 
 func SetBrightness(value int) error {
 	if value < minBrightness || value > maxBrightness {
@@ -24,26 +49,70 @@ func SetBrightness(value int) error {
 		return fmt.Errorf("failed to write brightness: %w", err)
 	}
 
-	err = os.WriteFile(brightnessSavePath, []byte(fmt.Sprintf("%d", value)), 0644)
+	config := BrightnessConfig{
+		Auto:       false,
+		Brightness: value,
+	}
+
+	data, err := json.Marshal(config)
 	if err != nil {
-		fmt.Printf("Warning: failed to save brightness value: %v\n", err)
+		return fmt.Errorf("failed to marshal brightness config: %w", err)
+	}
+
+	err = os.WriteFile(brightnessSavePath, data, 0644)
+	if err != nil {
+		fmt.Printf("Warning: failed to save brightness config: %v\n", err)
 	}
 
 	return nil
 }
 
-func GetBrightness() (int, error) {
-	data, err := os.ReadFile(brightnessPath)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read brightness: %w", err)
+func SetAutoBrightness(enabled bool, write bool) error {
+	var command string
+	if enabled {
+		command = "sv start auto_brightness"
+	} else {
+		command = "sv stop auto_brightness"
 	}
 
-	value, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse brightness value: %w", err)
+	args := strings.Fields(command)
+	if output, err := ExecuteCommand(args[0], args[1:]...); err != nil {
+		return fmt.Errorf("failed to execute command '%s': %v (output: %s)", command, err, output)
 	}
 
-	return value, nil
+	if !write {
+		return nil
+	}
+
+	var config BrightnessConfig
+	data, err := os.ReadFile(brightnessSavePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			config = BrightnessConfig{
+				Auto:       enabled,
+				Brightness: 180,
+			}
+		} else {
+			return fmt.Errorf("failed to read brightness config: %w", err)
+		}
+	} else {
+		if err := json.Unmarshal(data, &config); err != nil {
+			return fmt.Errorf("failed to parse brightness config: %w", err)
+		}
+		config.Auto = enabled
+	}
+
+	data, err = json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal brightness config: %w", err)
+	}
+
+	err = os.WriteFile(brightnessSavePath, data, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to save brightness config: %w", err)
+	}
+
+	return nil
 }
 
 func InitBrightness() error {
@@ -52,12 +121,18 @@ func InitBrightness() error {
 		return nil
 	}
 
-	value, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return fmt.Errorf("failed to parse saved brightness value: %w", err)
+	var config BrightnessConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("failed to parse saved brightness config: %w", err)
 	}
 
-	return SetBrightness(value)
+	if !config.Auto {
+		if err := SetBrightness(config.Brightness); err != nil {
+			return err
+		}
+	}
+
+	return SetAutoBrightness(config.Auto, false)
 }
 
 func ResetCounter() error {

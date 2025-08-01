@@ -440,15 +440,15 @@ func main() {
 			return
 		}
 
-		brightness, err := utils.GetBrightness()
+		config, err := utils.GetBrightnessConfig()
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to get brightness: " + err.Error()})
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to get brightness config: " + err.Error()})
 			return
 		}
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]int{"brightness": brightness})
+		json.NewEncoder(w).Encode(config)
 	}))
 
 	// POST /device/brightness/{value}
@@ -470,6 +470,34 @@ func main() {
 		if err := utils.SetBrightness(value); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to set brightness: " + err.Error()})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	}))
+
+	// POST /device/brightness/auto
+	http.HandleFunc("/device/brightness/auto", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			return
+		}
+
+		var request struct {
+			Enabled bool `json:"enabled"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Invalid request body"})
+			return
+		}
+
+		if err := utils.SetAutoBrightness(request.Enabled, true); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to set auto brightness: " + err.Error()})
 			return
 		}
 
