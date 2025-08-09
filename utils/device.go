@@ -219,3 +219,15 @@ func SetTimezone(timezone string) error {
 
 	return nil
 }
+
+func GetTimezone() (string, error) {
+    link, err := os.Readlink("/var/local/etc/localtime")
+    if err != nil {
+        return "", fmt.Errorf("failed to read timezone link: %w", err)
+    }
+    const prefix = "/usr/share/zoneinfo/"
+    if strings.HasPrefix(link, prefix) {
+        return strings.TrimPrefix(link, prefix), nil
+    }
+    return link, nil
+}

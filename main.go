@@ -658,31 +658,51 @@ func main() {
 			return
 		}
 
-		resp, err := http.Get("https://api.usenocturne.com/v1/timezone")
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to fetch timezone: " + err.Error()})
-			return
-		}
-		defer resp.Body.Close()
+		var tz string
 
-		var requestData struct {
-			Timezone string `json:"timezone"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&requestData); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to decode timezone response: " + err.Error()})
-			return
+		body, _ := io.ReadAll(r.Body)
+		if len(body) > 0 {
+			var directReq struct {
+				Timezone string `json:"timezone"`
+			}
+			if err := json.Unmarshal(body, &directReq); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(ErrorResponse{Error: "Invalid request body: " + err.Error()})
+				return
+			}
+			if strings.TrimSpace(directReq.Timezone) != "" {
+				tz = strings.TrimSpace(directReq.Timezone)
+			}
 		}
 
-		if err := utils.SetTimezone(requestData.Timezone); err != nil {
+		if tz == "" {
+			resp, err := http.Get("https://api.usenocturne.com/v1/timezone")
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to fetch timezone: " + err.Error()})
+				return
+			}
+			defer resp.Body.Close()
+
+			var requestData struct {
+				Timezone string `json:"timezone"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&requestData); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to decode timezone response: " + err.Error()})
+				return
+			}
+			tz = requestData.Timezone
+		}
+
+		if err := utils.SetTimezone(tz); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
 			return
 		}
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "success", "timezone": requestData.Timezone})
+		json.NewEncoder(w).Encode(map[string]string{"status": "success", "timezone": tz})
 	}))
 
 	// GET /device/date
@@ -708,13 +728,37 @@ func main() {
 			return
 		}
 
+		tz, tzErr := utils.GetTimezone()
 		resp := map[string]string{
-			"date": parts[0],
-			"time": parts[1],
+			"date":     parts[0],
+			"time":     parts[1],
+			"timezone": tz,
+		}
+		if tzErr != nil {
+			resp["timezone_error"] = tzErr.Error()
 		}
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(resp)
+	}))
+
+	// GET /device/date/timezones
+	http.HandleFunc("/device/date/timezones", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Method not allowed"})
+			return
+		}
+
+		zones, err := utils.ListTimezones()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(ErrorResponse{Error: "Failed to list timezones: " + err.Error()})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(zones)
 	}))
 
 	// POST /update
