@@ -794,35 +794,20 @@ func main() {
 			defer os.RemoveAll(tempDir)
 
 			imgPath := filepath.Join(tempDir, "update.tar.zst")
-			imgResp, err := http.Get(requestData.ImageURL)
-			if err != nil {
+			if err := utils.DownloadWithResume(requestData.ImageURL, imgPath, func(complete, total int64, speed float64) {
+				if total > 0 {
+					percent := float64(complete) / float64(total) * 100
+					broadcastProgress(utils.ProgressMessage{
+						Type:          "progress",
+						Stage:         "download",
+						BytesComplete: complete,
+						BytesTotal:    total,
+						Speed:         float64(int(speed*10)) / 10,
+						Percent:       float64(int(percent*10)) / 10,
+					})
+				}
+			}); err != nil {
 				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to download image: %v", err))
-				return
-			}
-			defer imgResp.Body.Close()
-
-			imgFile, err := os.Create(imgPath)
-			if err != nil {
-				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to create image file: %v", err))
-				return
-			}
-			defer imgFile.Close()
-
-			contentLength := imgResp.ContentLength
-			progressReader := utils.NewProgressReader(imgResp.Body, contentLength, func(complete, total int64, speed float64) {
-				percent := float64(complete) / float64(total) * 100
-				broadcastProgress(utils.ProgressMessage{
-					Type:          "progress",
-					Stage:         "download",
-					BytesComplete: complete,
-					BytesTotal:    total,
-					Speed:         float64(int(speed*10)) / 10,
-					Percent:       float64(int(percent*10)) / 10,
-				})
-			})
-
-			if _, err := io.Copy(imgFile, progressReader); err != nil {
-				utils.SetUpdateStatus(false, "", fmt.Sprintf("Failed to save image file: %v", err))
 				return
 			}
 
