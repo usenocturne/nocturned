@@ -57,8 +57,8 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func networkChecker(hub *utils.WebSocketHub) {
-	const (
-		host          = "1.1.1.1"
+	var (
+		hosts          = []string{"1.1.1.1", "8.8.8.8"}
 		interval      = 1 // seconds
 		failThreshold = 5
 	)
@@ -66,13 +66,18 @@ func networkChecker(hub *utils.WebSocketHub) {
 	failCount := 0
 	isOnline := false
 
-	pingHost := func() bool {
-		cmd := exec.Command("ping", "-c", "1", "-W", "1", host)
-		err := cmd.Run()
-		return err == nil
+	pingHosts := func() bool {
+		for _, h := range hosts {
+			cmd := exec.Command("ping", "-c", "1", "-W", "1", h)
+			if err := cmd.Run(); err == nil {
+				return true
+			}
+		}
+		return false
 	}
 
-	if pingHost() {
+
+	if pingHosts() {
 		currentNetworkStatus = "online"
 		hub.Broadcast(utils.WebSocketEvent{
 			Type:    "network_status",
@@ -88,7 +93,7 @@ func networkChecker(hub *utils.WebSocketHub) {
 	}
 
 	for {
-		if pingHost() {
+		if pingHosts() {
 			failCount = 0
 			if !isOnline {
 				currentNetworkStatus = "online"
@@ -111,7 +116,7 @@ func networkChecker(hub *utils.WebSocketHub) {
 			isOnline = false
 		}
 
-		time.Sleep(interval * time.Second)
+		time.Sleep(time.Duration(interval) * time.Second)
 	}
 }
 
