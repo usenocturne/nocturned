@@ -157,6 +157,7 @@ impl WebSocketProtocolHandler {
                 | "device.time.get"
                 | "tts.speak"
                 | "tts.stop"
+                | "voice.cancel"
                 | "onboarding.set_state" => {
                     let spotify_request = serde_json::json!({
                         "method": method,
