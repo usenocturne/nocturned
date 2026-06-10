@@ -23,6 +23,11 @@ use crate::error::{NocturnedError, Result};
 use crate::mfi_impl::HardwareMfiProvider;
 use crate::websocket::WebSocketServer;
 
+const NOCTURNE_APP_BUNDLE_ID: &str = "com.usenocturne.nocturne";
+const APP_LAUNCH_INITIAL_DELAY: Duration = Duration::from_secs(5);
+const APP_LAUNCH_RETRY_INTERVAL: Duration = Duration::from_secs(15);
+const APP_LAUNCH_MAX_ATTEMPTS: u32 = 5;
+
 #[derive(Default, Clone)]
 struct NowPlayingState {
     title: Option<String>,
@@ -300,6 +305,10 @@ async fn run_iap2_connection(
     let mut last_daemon_ready = Instant::now();
     let mut audio_events_closed = false;
 
+    let mut ea_session_waiting_since = Instant::now();
+    let mut app_launch_attempts: u32 = 0;
+    let mut last_app_launch_attempt: Option<Instant> = None;
+
     while *running.lock().await {
         let ea_data_future = async {
             match &mut ea_session_rx {
@@ -346,6 +355,9 @@ async fn run_iap2_connection(
                     ea_session_rx = Some(session.rx);
                     ea_session_tx = Some(session.tx_to_iphone);
 
+                    app_launch_attempts = 0;
+                    last_app_launch_attempt = None;
+
                     send_daemon_ready(session.session_id, &ea_session_tx);
                     last_daemon_ready = Instant::now();
                 }
@@ -367,6 +379,10 @@ async fn run_iap2_connection(
                     ea_session_id = None;
                     ea_session_rx = None;
                     ea_session_tx = None;
+
+                    ea_session_waiting_since = Instant::now();
+                    app_launch_attempts = 0;
+                    last_app_launch_attempt = None;
                 }
             }
 
@@ -459,6 +475,24 @@ async fn run_iap2_connection(
                     {
                         send_daemon_ready(session_id, &ea_session_tx);
                         last_daemon_ready = Instant::now();
+                    }
+                } else if app_launch_attempts < APP_LAUNCH_MAX_ATTEMPTS
+                    && ea_session_waiting_since.elapsed() >= APP_LAUNCH_INITIAL_DELAY
+                    && last_app_launch_attempt
+                        .map(|at| at.elapsed() >= APP_LAUNCH_RETRY_INTERVAL)
+                        .unwrap_or(true)
+                {
+                    app_launch_attempts += 1;
+                    last_app_launch_attempt = Some(Instant::now());
+                    info!(
+                        "No EA session with {} yet, sending RequestAppLaunch for {} (attempt {}/{})",
+                        device_address,
+                        NOCTURNE_APP_BUNDLE_ID,
+                        app_launch_attempts,
+                        APP_LAUNCH_MAX_ATTEMPTS
+                    );
+                    if let Err(e) = lib_conn.request_app_launch(NOCTURNE_APP_BUNDLE_ID.to_string()) {
+                        warn!("Failed to send RequestAppLaunch: {}", e);
                     }
                 }
 
@@ -802,7 +836,7 @@ async fn handle_websocket_message_new(
         let bundle_id = params
             .get("bundleId")
             .and_then(|v| v.as_str())
-            .unwrap_or("com.usenocturne.nocturne");
+            .unwrap_or(NOCTURNE_APP_BUNDLE_ID);
 
         match lib_conn.request_app_launch(bundle_id.to_string()) {
             Ok(()) => {
