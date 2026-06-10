@@ -1380,7 +1380,7 @@ impl BluetoothDaemon {
         _channel: u8,
         _device_type: &str,
         connections: Arc<Mutex<Vec<Iap2Connection>>>,
-        _generic_connections: Arc<Mutex<Vec<GenericConnection>>>,
+        generic_connections: Arc<Mutex<Vec<GenericConnection>>>,
         websocket_server: Option<Arc<WebSocketServer>>,
         _adapter: Adapter,
         android_wake_armed: Arc<Mutex<bool>>,
@@ -1389,6 +1389,25 @@ impl BluetoothDaemon {
         wakeword_pause_tx: mpsc::UnboundedSender<crate::wakeword::WakeWordCommand>,
     ) -> Result<ConnectionOutcome> {
         info!("Connecting to device {} (auto-detecting protocol)", address);
+
+        if connections
+            .lock()
+            .await
+            .iter()
+            .any(|c| c.address() == address)
+        {
+            info!("Device {} already has an active iAP2 session", address);
+            return Ok(ConnectionOutcome::Connected);
+        }
+        if generic_connections
+            .lock()
+            .await
+            .iter()
+            .any(|c| c.device_address == address)
+        {
+            info!("Device {} already has an active SPP session", address);
+            return Ok(ConnectionOutcome::Connected);
+        }
 
         if let Some(ws_server) = &websocket_server {
             ws_server
