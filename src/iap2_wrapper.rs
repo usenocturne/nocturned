@@ -308,6 +308,7 @@ async fn run_iap2_connection(
     let mut ea_session_waiting_since = Instant::now();
     let mut app_launch_attempts: u32 = 0;
     let mut last_app_launch_attempt: Option<Instant> = None;
+    let mut ea_session_ever_established = false;
 
     while *running.lock().await {
         let ea_data_future = async {
@@ -357,6 +358,7 @@ async fn run_iap2_connection(
 
                     app_launch_attempts = 0;
                     last_app_launch_attempt = None;
+                    ea_session_ever_established = true;
 
                     send_daemon_ready(session.session_id, &ea_session_tx);
                     last_daemon_ready = Instant::now();
@@ -476,7 +478,8 @@ async fn run_iap2_connection(
                         send_daemon_ready(session_id, &ea_session_tx);
                         last_daemon_ready = Instant::now();
                     }
-                } else if app_launch_attempts < APP_LAUNCH_MAX_ATTEMPTS
+                } else if !ea_session_ever_established
+                    && app_launch_attempts < APP_LAUNCH_MAX_ATTEMPTS
                     && ea_session_waiting_since.elapsed() >= APP_LAUNCH_INITIAL_DELAY
                     && last_app_launch_attempt
                         .map(|at| at.elapsed() >= APP_LAUNCH_RETRY_INTERVAL)
