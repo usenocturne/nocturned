@@ -45,6 +45,7 @@ nocturned-private/
 - `iap2-rs` — iAP2 protocol library; consumed via Cargo git dependency on GitHub SSH (`ssh://git@github.com/usenocturne/iap2-rs.git`). To test against a local checkout, add a `[patch]` override in `Cargo.toml`.
 - `nocturne-ui` — Car Thing web frontend. Connects to this daemon over WebSocket port 5000.
 - `nocturne-app` — iOS/Android companion. Connects over Bluetooth (iAP2 EA on iOS, RFCOMM SPP on Android), both speaking MsgPack RPC handled by `src/app/msgpack.rs`.
+- `nocturne-connector` macOS — for a paired computer-class device, `src/bluetooth.rs` sends a short RFCOMM probe to the Mac's Bluetooth-Incoming-Port listener on channel `3`. The Mac responds by dialing this daemon's SPP/RPC channel `2`. Keep this Car Thing-triggered; the Mac must not poll or sweep the Car Thing address.
 - `nocturne-image` — Buildroot firmware. Bakes this daemon into the Car Thing rootfs at build time.
 - `nocturne-ota` — OTA server. `src/app/msgpack.rs::download_ota_chunks_task` fetches signed SWU packages from there. Server URL configured in `/etc/nocturne/config.json` (loaded by `src/config.rs`).
 

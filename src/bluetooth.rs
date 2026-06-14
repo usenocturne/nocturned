@@ -33,6 +33,7 @@ pub struct GenericConnection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConnectionOutcome {
     Connected,
+    WaitingForMacConnector,
     WaitingForAndroid,
 }
 
@@ -211,6 +212,23 @@ impl BluetoothDaemon {
                                                                     msg_id,
                                                                     serde_json::json!({
                                                                         "status": "connected",
+                                                                        "device": address_str_clone
+                                                                    }),
+                                                                ).await;
+                                                            }
+                                                        }
+                                                        ConnectionOutcome::WaitingForMacConnector => {
+                                                            info!(
+                                                                "Waiting for macOS connector {} to dial back over SPP",
+                                                                address
+                                                            );
+                                                            if let Some(ws_server) =
+                                                                &ws_server_clone
+                                                            {
+                                                                ws_server.send_response(
+                                                                    msg_id,
+                                                                    serde_json::json!({
+                                                                        "status": "waiting_for_macos_connector",
                                                                         "device": address_str_clone
                                                                     }),
                                                                 ).await;
@@ -1373,6 +1391,9 @@ impl BluetoothDaemon {
     }
 
     const IAP2_LINK_TIMEOUT: Duration = Duration::from_secs(5);
+    const MACOS_CONNECTOR_PROBE_CHANNEL: u8 = 3;
+    const MACOS_CONNECTOR_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
+    const MACOS_CONNECTOR_PROBE_HOLD: Duration = Duration::from_millis(750);
 
     #[allow(clippy::too_many_arguments)]
     async fn connect_to_device(
@@ -1382,7 +1403,7 @@ impl BluetoothDaemon {
         connections: Arc<Mutex<Vec<Iap2Connection>>>,
         generic_connections: Arc<Mutex<Vec<GenericConnection>>>,
         websocket_server: Option<Arc<WebSocketServer>>,
-        _adapter: Adapter,
+        adapter: Adapter,
         android_wake_armed: Arc<Mutex<bool>>,
         audio_event_rx: broadcast::Receiver<AudioEvent>,
         audio_cmd_tx: mpsc::UnboundedSender<AudioCommand>,
@@ -1420,6 +1441,38 @@ impl BluetoothDaemon {
                     }),
                 )
                 .await;
+        }
+
+        if Self::looks_like_computer(&adapter, address).await {
+            info!(
+                "Attempting macOS connector probe on channel {} for {}",
+                Self::MACOS_CONNECTOR_PROBE_CHANNEL,
+                address
+            );
+            match tokio::time::timeout(
+                Self::MACOS_CONNECTOR_PROBE_TIMEOUT,
+                Self::probe_macos_connector(address, websocket_server.clone()),
+            )
+            .await
+            {
+                Ok(Ok(())) => {
+                    info!(
+                        "macOS connector probe sent to {}; waiting for channel 2 callback",
+                        address
+                    );
+                    return Ok(ConnectionOutcome::WaitingForMacConnector);
+                }
+                Ok(Err(e)) => {
+                    warn!("macOS connector probe failed for {}: {}", address, e);
+                    return Err(e);
+                }
+                Err(_) => {
+                    warn!("macOS connector probe timed out for {}", address);
+                    return Err(crate::error::NocturnedError::General(anyhow::anyhow!(
+                        "macOS connector probe timed out"
+                    )));
+                }
+            }
         }
 
         info!("Attempting iAP2 connection on channel 1 for {}", address);
@@ -1487,6 +1540,71 @@ impl BluetoothDaemon {
             "Waiting for Android app to wake via CompanionDeviceManager and connect back over SPP"
         );
         Ok(ConnectionOutcome::WaitingForAndroid)
+    }
+
+    async fn looks_like_computer(adapter: &Adapter, address: Address) -> bool {
+        let Ok(device) = adapter.device(address) else {
+            return false;
+        };
+
+        if let Ok(Some(icon)) = device.icon().await {
+            if icon == "computer" {
+                return true;
+            }
+        }
+
+        if let Ok(Some(class)) = device.class().await {
+            let major_device_class = (class >> 8) & 0x1f;
+            if major_device_class == 0x01 {
+                return true;
+            }
+        }
+
+        let alias = device.alias().await.ok();
+        let name = device.name().await.ok().flatten();
+        let looks_like_mac_name = [alias.as_deref(), name.as_deref()]
+            .into_iter()
+            .flatten()
+            .any(|value| {
+                let lower = value.to_lowercase();
+                lower.contains("macbook")
+                    || lower.contains("mac mini")
+                    || lower.contains("mac studio")
+                    || lower.contains("imac")
+                    || lower.contains("nocturne connector")
+            });
+        looks_like_mac_name
+    }
+
+    async fn probe_macos_connector(
+        address: Address,
+        websocket_server: Option<Arc<WebSocketServer>>,
+    ) -> Result<()> {
+        if let Some(ws_server) = &websocket_server {
+            ws_server
+                .broadcast_event(
+                    "bluetooth.connection".to_string(),
+                    serde_json::json!({
+                        "event": "connector_probe",
+                        "device": address.to_string(),
+                        "connection_type": "macos_connector",
+                        "channel": Self::MACOS_CONNECTOR_PROBE_CHANNEL,
+                        "initiated_by": "daemon"
+                    }),
+                )
+                .await;
+        }
+
+        let socket_addr = SocketAddr::new(address, Self::MACOS_CONNECTOR_PROBE_CHANNEL);
+        let mut stream = Stream::connect(socket_addr).await?;
+        info!(
+            "macOS connector probe opened for {} on channel {}",
+            address,
+            Self::MACOS_CONNECTOR_PROBE_CHANNEL
+        );
+        tokio::time::sleep(Self::MACOS_CONNECTOR_PROBE_HOLD).await;
+        let _ = stream.shutdown().await;
+        Ok(())
     }
 
     async fn try_iap2_connection(
