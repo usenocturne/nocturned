@@ -18,7 +18,7 @@ const OPUS_OUTPUT_BYTES: usize = 4096;
 const EVENT_CHANNEL_CAPACITY: usize = 64;
 const SILENCE_THRESHOLD_RMS: f32 = 300.0;
 const SILENCE_DURATION_MS: u64 = 1500;
-const SILENCE_GRACE_PERIOD_MS: u64 = 700;
+const SILENCE_GRACE_PERIOD_MS: u64 = 1500;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AudioEvent {
@@ -235,7 +235,7 @@ async fn run_recording_task(
     let mut seq = 0u64;
     let mut total_frames = 0u64;
     let mut started_sent = false;
-    let recording_started_at = Instant::now();
+    let mut first_frame_at = None;
     let mut silence_start = None;
     let mut mic_level_counter = 0u64;
 
@@ -260,7 +260,8 @@ async fn run_recording_task(
                         }
 
                         let now = Instant::now();
-                        let within_grace_period = now.duration_since(recording_started_at)
+                        let first_frame = *first_frame_at.get_or_insert(now);
+                        let within_grace_period = now.duration_since(first_frame)
                             < Duration::from_millis(SILENCE_GRACE_PERIOD_MS);
                         let rms = rms_energy(&pcm_frame);
 
