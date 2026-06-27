@@ -39,6 +39,41 @@ pub enum WebSocketMessage {
     },
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn playback_active_from_now_playing_detects_playing_case_insensitively() {
+        let data = serde_json::json!({
+            "PlaybackAttributes": {
+                "PlaybackStatus": "Playing"
+            }
+        });
+
+        assert_eq!(playback_active_from_now_playing(&data), Some(true));
+    }
+
+    #[test]
+    fn playback_active_from_now_playing_detects_paused() {
+        let data = serde_json::json!({
+            "PlaybackAttributes": {
+                "PlaybackStatus": "paused"
+            }
+        });
+
+        assert_eq!(playback_active_from_now_playing(&data), Some(false));
+    }
+}
+
+fn playback_active_from_now_playing(data: &serde_json::Value) -> Option<bool> {
+    let status = data
+        .get("PlaybackAttributes")
+        .and_then(|attrs| attrs.get("PlaybackStatus"))
+        .and_then(|value| value.as_str())?;
+    Some(status.eq_ignore_ascii_case("playing"))
+}
+
 pub struct WebSocketConnection {
     id: String,
     #[allow(dead_code)]
@@ -54,6 +89,7 @@ pub struct WebSocketServer {
     pending_image_fetches: Arc<RwLock<HashSet<String>>>,
     last_app_ready: Arc<RwLock<Option<serde_json::Value>>>,
     last_wakeword_state: Arc<RwLock<Option<bool>>>,
+    last_playback_active: Arc<RwLock<bool>>,
 }
 
 impl WebSocketServer {
@@ -70,6 +106,7 @@ impl WebSocketServer {
             pending_image_fetches: Arc::new(RwLock::new(HashSet::new())),
             last_app_ready: Arc::new(RwLock::new(None)),
             last_wakeword_state: Arc::new(RwLock::new(None)),
+            last_playback_active: Arc::new(RwLock::new(false)),
         }
     }
 
@@ -1355,6 +1392,15 @@ impl WebSocketServer {
 
     pub async fn clear_app_ready(&self) {
         *self.last_app_ready.write().await = None;
+        *self.last_playback_active.write().await = false;
+    }
+
+    pub async fn has_ready_app_session(&self) -> bool {
+        self.last_app_ready.read().await.is_some()
+    }
+
+    pub async fn is_playback_active(&self) -> bool {
+        *self.last_playback_active.read().await
     }
 
     pub async fn broadcast_event(&self, topic: String, data: serde_json::Value) {
@@ -1372,6 +1418,10 @@ impl WebSocketServer {
                 if let Some(has_lifetime) = data.get("hasLifetime") {
                     app_ready_data["hasLifetime"] = has_lifetime.clone();
                 }
+            }
+        } else if topic == "media.nowPlaying.update" {
+            if let Some(active) = playback_active_from_now_playing(&data) {
+                *self.last_playback_active.write().await = active;
             }
         }
 

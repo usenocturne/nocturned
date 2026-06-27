@@ -159,6 +159,13 @@ impl WebSocketProtocolHandler {
                 | "tts.stop"
                 | "voice.cancel"
                 | "onboarding.set_state" => {
+                    if method == "voice.cancel" {
+                        debug!("Voice cancel requested; stopping audio capture before routing to phone");
+                        if let Some(tx) = &self.audio_cmd_tx {
+                            let _ = tx.send(AudioCommand::Stop);
+                        }
+                    }
+
                     let spotify_request = serde_json::json!({
                         "method": method,
                         "params": data.get("params").unwrap_or(&serde_json::Value::Null)

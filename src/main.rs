@@ -99,6 +99,11 @@ async fn main() -> Result<()> {
         .ok()
         .and_then(|s| s.parse::<f32>().ok())
         .unwrap_or(0.5);
+    let default_playback_threshold = threshold.max(0.85);
+    let playback_threshold = std::env::var("WAKEWORD_PLAYBACK_THRESHOLD")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(default_playback_threshold);
 
     let (wakeword_detector, mut wakeword_event_rx) =
         wakeword::WakeWordDetector::new(models_dir, threshold);
@@ -121,6 +126,21 @@ async fn main() -> Result<()> {
                     ref keyword,
                     confidence,
                 } => {
+                    if ws_for_wakeword.is_playback_active().await && confidence < playback_threshold
+                    {
+                        info!(
+                            "Suppressing wake word '{}' during playback (confidence {:.2} < {:.2})",
+                            keyword, confidence, playback_threshold
+                        );
+                        continue;
+                    }
+                    if !ws_for_wakeword.has_ready_app_session().await {
+                        warn!(
+                            "Ignoring wake word '{}' because no companion app session is ready",
+                            keyword
+                        );
+                        continue;
+                    }
                     info!(
                         "Wake word detected: {} (confidence: {:.2})",
                         keyword, confidence

@@ -465,6 +465,12 @@ impl BluetoothDaemon {
                     if let Ok(data) = serde_json::from_slice::<serde_json::Value>(&ws_message.data)
                     {
                         if let Some(method) = data.get("method").and_then(|m| m.as_str()) {
+                            if method == "voice.cancel" {
+                                debug!(
+                                    "Voice cancel requested; stopping audio capture before routing to phone"
+                                );
+                                let _ = audio_cmd_tx.send(AudioCommand::Stop);
+                            }
                             if method == "audio.record.start" {
                                 let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
                                 let _ = wakeword_pause_tx.send(

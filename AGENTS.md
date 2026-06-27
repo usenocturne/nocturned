@@ -143,6 +143,8 @@ Unzip `resources.zip` locally (gitignored — too large to track) for reverse-en
 - **Capture**: `src/audio.rs` spawns `arecord` (ALSA `hw:0,0`, 16kHz mono S16_LE), Opus encoding (24kbps VBR)
 - **Wire Format**: MsgPack events — `audio.recording.started`, `audio.data` (base64 Opus), `audio.recording.stopped`
 - **Control**: WebSocket commands `audio.record.start` / `audio.record.stop`
+- **Cancel**: `voice.cancel` also stops daemon audio capture before it is forwarded to the phone app. Phone apps treat stopped/cancelled/user_cancelled stop reasons as no-upload cancellation and release AI/TTS/ducking immediately.
+- **Wake-word guard**: wake-word capture requires the cached `app.ready` handshake from the current phone session before starting audio; `app.ready` is only sent at connection handshake, not per voice turn. While `media.nowPlaying.update` says playback is active, wake-word detections must meet `WAKEWORD_PLAYBACK_THRESHOLD` (default: at least `0.85`) until a non-playing update or phone disconnect clears that state. Keep this behavior coordinated with Android's CompanionDevice wake path.
 
 ### MFi Hardware
 - Certificate from `/dev/apple_mfi` via ioctl `0x80107704`/`0x80107705`
