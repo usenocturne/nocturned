@@ -36,6 +36,9 @@ const STEP_FRACTION: f32 = 0.02;
 const SMOOTHING_SAMPLES: usize = 11;
 
 static AUTO_TASK: std::sync::Mutex<Option<JoinHandle<()>>> = std::sync::Mutex::new(None);
+static BRIGHTNESS_OP_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static DISPLAY_SLEEP_STATE: std::sync::Mutex<Option<BrightnessConfig>> =
+    std::sync::Mutex::new(None);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrightnessConfig {
@@ -183,6 +186,12 @@ async fn auto_brightness_loop() {
         }
         tokio::time::sleep(AUTO_POLL_INTERVAL).await;
 
+        let _op_guard = BRIGHTNESS_OP_LOCK.lock().await;
+
+        if is_display_sleeping() {
+            continue;
+        }
+
         let Some(current_bl) = read_current_brightness_file().await else {
             continue;
         };
@@ -207,6 +216,78 @@ fn stop_auto_brightness() {
     }
 }
 
+fn start_auto_brightness() {
+    let mut handle = AUTO_TASK.lock().unwrap();
+    if let Some(h) = handle.take() {
+        h.abort();
+    }
+    info!("Starting native auto-brightness");
+    *handle = Some(tokio::spawn(auto_brightness_loop()));
+}
+
+fn clear_display_sleep_state() {
+    DISPLAY_SLEEP_STATE.lock().unwrap().take();
+}
+
+pub fn is_display_sleeping() -> bool {
+    DISPLAY_SLEEP_STATE.lock().unwrap().is_some()
+}
+
+pub async fn get_display_config() -> Result<BrightnessConfig> {
+    let _op_guard = BRIGHTNESS_OP_LOCK.lock().await;
+    if let Some(config) = DISPLAY_SLEEP_STATE.lock().unwrap().clone() {
+        return Ok(config);
+    }
+    get_brightness_config().await
+}
+
+pub async fn sleep_display() -> Result<BrightnessConfig> {
+    let _op_guard = BRIGHTNESS_OP_LOCK.lock().await;
+
+    if let Some(config) = DISPLAY_SLEEP_STATE.lock().unwrap().clone() {
+        return Ok(config);
+    }
+
+    let mut config = get_brightness_config().await.unwrap_or_default();
+    if let Some(current_brightness) = read_current_brightness_file().await {
+        config.brightness = current_brightness;
+    }
+    *DISPLAY_SLEEP_STATE.lock().unwrap() = Some(config.clone());
+
+    stop_auto_brightness();
+    if let Err(e) = write_backlight(MIN_BRIGHTNESS).await {
+        clear_display_sleep_state();
+        if config.auto {
+            start_auto_brightness();
+        }
+        return Err(e.into());
+    }
+
+    info!("Display backlight sleeping");
+    Ok(config)
+}
+
+pub async fn wake_display() -> Result<BrightnessConfig> {
+    let _op_guard = BRIGHTNESS_OP_LOCK.lock().await;
+    let sleeping_config = DISPLAY_SLEEP_STATE.lock().unwrap().clone();
+    let config = match sleeping_config {
+        Some(config) => config,
+        None => get_brightness_config().await.unwrap_or_default(),
+    };
+
+    if config.auto {
+        write_backlight(config.brightness).await?;
+        start_auto_brightness();
+    } else {
+        stop_auto_brightness();
+        write_backlight(config.brightness).await?;
+    }
+
+    clear_display_sleep_state();
+    info!("Display backlight awake");
+    Ok(config)
+}
+
 pub async fn set_brightness(value: u8) -> Result<()> {
     if !(MAX_BRIGHTNESS..=MIN_BRIGHTNESS).contains(&value) {
         return Err(crate::error::NocturnedError::General(anyhow::anyhow!(
@@ -216,6 +297,8 @@ pub async fn set_brightness(value: u8) -> Result<()> {
         )));
     }
 
+    let _op_guard = BRIGHTNESS_OP_LOCK.lock().await;
+    clear_display_sleep_state();
     stop_auto_brightness();
     write_backlight(value).await?;
 
@@ -229,13 +312,11 @@ pub async fn set_brightness(value: u8) -> Result<()> {
 }
 
 pub async fn set_auto_brightness(enabled: bool) -> Result<()> {
+    let _op_guard = BRIGHTNESS_OP_LOCK.lock().await;
+    clear_display_sleep_state();
+
     if enabled {
-        let mut handle = AUTO_TASK.lock().unwrap();
-        if let Some(h) = handle.take() {
-            h.abort();
-        }
-        info!("Starting native auto-brightness");
-        *handle = Some(tokio::spawn(auto_brightness_loop()));
+        start_auto_brightness();
     } else {
         stop_auto_brightness();
         info!("Stopped native auto-brightness");

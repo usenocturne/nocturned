@@ -152,6 +152,11 @@ Unzip `resources.zip` locally (gitignored — too large to track) for reverse-en
 - Challenge-response: 32-byte challenge → ECDSA P-256 64-byte signature via `0x40107706`/`0x80107707`
 - Falls back to hardcoded cert/response on non-Car Thing hardware
 
+### Display Sleep
+- UI lock/sleep uses WebSocket methods `device.display.get`, `device.display.sleep`, and `device.display.wake`; this is a daemon-local UI contract, not part of the phone MsgPack protocol.
+- Display sleep is transient and separate from entering the UI lock screen. `brightness.rs` stores the current saved brightness/auto config in memory, stops native auto brightness, writes the dimmest backlight value, and restores the saved manual value or restarts auto brightness on wake.
+- Do not use `device.brightness.set` for sleep: that command intentionally persists a manual brightness value and disables auto brightness.
+
 ## ANTI-PATTERNS (THIS PROJECT)
 
 - **Hardcoded paths are intentional**: `/etc/nocturne/`, `/dev/apple_mfi`, `/dev/misc`, ALSA `hw:0,0` are Car Thing constants — don't refactor into config

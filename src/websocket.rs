@@ -74,6 +74,14 @@ fn playback_active_from_now_playing(data: &serde_json::Value) -> Option<bool> {
     Some(status.eq_ignore_ascii_case("playing"))
 }
 
+fn display_state_result(config: crate::brightness::BrightnessConfig) -> serde_json::Value {
+    serde_json::json!({
+        "auto": config.auto,
+        "brightness": config.brightness,
+        "sleeping": crate::brightness::is_display_sleeping()
+    })
+}
+
 pub struct WebSocketConnection {
     id: String,
     #[allow(dead_code)]
@@ -680,6 +688,25 @@ impl WebSocketServer {
                         }
                         _ => {}
                     }
+                }
+
+                if method.starts_with("device.display.") {
+                    let result = match method.as_str() {
+                        "device.display.get" => crate::brightness::get_display_config().await,
+                        "device.display.sleep" => crate::brightness::sleep_display().await,
+                        "device.display.wake" => crate::brightness::wake_display().await,
+                        _ => {
+                            self.send_error(id, "unknown display method".to_string())
+                                .await;
+                            return Ok(());
+                        }
+                    };
+
+                    match result {
+                        Ok(config) => self.send_response(id, display_state_result(config)).await,
+                        Err(e) => self.send_error(id, e.to_string()).await,
+                    }
+                    return Ok(());
                 }
 
                 if method == "bluetooth.discoverable" {
