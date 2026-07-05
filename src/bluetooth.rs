@@ -163,6 +163,19 @@ impl BluetoothDaemon {
                                             .and_then(|a| a.as_str())
                                             .map(|s| s.to_string());
 
+                                        let requested_channel = params
+                                            .get("channel")
+                                            .and_then(|channel| channel.as_u64())
+                                            .and_then(|channel| u8::try_from(channel).ok())
+                                            .unwrap_or(0);
+                                        let requested_device_type = params
+                                            .get("device_type")
+                                            .or_else(|| params.get("deviceType"))
+                                            .or_else(|| params.get("connection_type"))
+                                            .and_then(|value| value.as_str())
+                                            .unwrap_or("")
+                                            .to_string();
+
                                         if let Some(address_str) = address_str {
                                             if let Ok(address) = Address::from_str(&address_str) {
                                                 let connections_clone = Arc::clone(&connections);
@@ -178,6 +191,7 @@ impl BluetoothDaemon {
                                                     audio_event_rx_for_connect.resubscribe();
                                                 let audio_tx = audio_cmd_tx.clone();
                                                 let wakeword_pause = wakeword_pause_tx.clone();
+                                                let device_type = requested_device_type.clone();
 
                                                 tokio::spawn(async move {
                                                     {
@@ -185,20 +199,23 @@ impl BluetoothDaemon {
                                                             android_wake_armed_clone.lock().await;
                                                         *armed = true;
                                                     }
-                                                    match BluetoothDaemon::connect_to_device(
-                                                    address,
-                                                    0,
-                                                    "",
-                                                    connections_clone,
-                                                    generic_connections_clone,
-                                                    ws_server_clone.clone(),
-                                                    adapter_clone,
-                                                    android_wake_armed_clone.clone(),
-                                                    audio_rx,
-                                                    audio_tx,
-                                                    wakeword_pause,
-                                                )
-                                                .await {
+                                                    let connect_result =
+                                                        BluetoothDaemon::connect_to_device(
+                                                            address,
+                                                            requested_channel,
+                                                            device_type.as_str(),
+                                                            connections_clone,
+                                                            generic_connections_clone,
+                                                            ws_server_clone.clone(),
+                                                            adapter_clone,
+                                                            android_wake_armed_clone.clone(),
+                                                            audio_rx,
+                                                            audio_tx,
+                                                            wakeword_pause,
+                                                        )
+                                                        .await;
+
+                                                    match connect_result {
                                                     Ok(outcome) => match outcome {
                                                         ConnectionOutcome::Connected => {
                                                             info!(
@@ -1397,15 +1414,15 @@ impl BluetoothDaemon {
     }
 
     const IAP2_LINK_TIMEOUT: Duration = Duration::from_secs(5);
-    const MACOS_CONNECTOR_PROBE_CHANNEL: u8 = 3;
+    pub const MACOS_CONNECTOR_PROBE_CHANNEL: u8 = 3;
     const MACOS_CONNECTOR_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
     const MACOS_CONNECTOR_PROBE_HOLD: Duration = Duration::from_millis(750);
 
     #[allow(clippy::too_many_arguments)]
     async fn connect_to_device(
         address: Address,
-        _channel: u8,
-        _device_type: &str,
+        channel: u8,
+        device_type: &str,
         connections: Arc<Mutex<Vec<Iap2Connection>>>,
         generic_connections: Arc<Mutex<Vec<GenericConnection>>>,
         websocket_server: Option<Arc<WebSocketServer>>,
@@ -1415,7 +1432,10 @@ impl BluetoothDaemon {
         audio_cmd_tx: mpsc::UnboundedSender<AudioCommand>,
         wakeword_pause_tx: mpsc::UnboundedSender<crate::wakeword::WakeWordCommand>,
     ) -> Result<ConnectionOutcome> {
-        info!("Connecting to device {} (auto-detecting protocol)", address);
+        info!(
+            "Connecting to device {} (auto-detecting protocol, requested_channel={}, device_type={:?})",
+            address, channel, device_type
+        );
 
         if connections
             .lock()
@@ -1449,7 +1469,8 @@ impl BluetoothDaemon {
                 .await;
         }
 
-        if Self::looks_like_computer(&adapter, address).await {
+        let explicit_macos_connector = Self::is_macos_connector_hint(channel, device_type);
+        if explicit_macos_connector || Self::looks_like_computer(&adapter, address).await {
             info!(
                 "Attempting macOS connector probe on channel {} for {}",
                 Self::MACOS_CONNECTOR_PROBE_CHANNEL,
@@ -1548,26 +1569,33 @@ impl BluetoothDaemon {
         Ok(ConnectionOutcome::WaitingForAndroid)
     }
 
+    fn is_macos_connector_hint(channel: u8, device_type: &str) -> bool {
+        if channel == Self::MACOS_CONNECTOR_PROBE_CHANNEL {
+            return true;
+        }
+
+        let normalized = device_type.trim().to_ascii_lowercase();
+        matches!(
+            normalized.as_str(),
+            "computer" | "mac" | "macos" | "macos_connector" | "macos-connector"
+        )
+    }
+
     async fn looks_like_computer(adapter: &Adapter, address: Address) -> bool {
         let Ok(device) = adapter.device(address) else {
+            info!("Bluetooth device {} classification unavailable", address);
             return false;
         };
 
-        if let Ok(Some(icon)) = device.icon().await {
-            if icon == "computer" {
-                return true;
-            }
-        }
-
-        if let Ok(Some(class)) = device.class().await {
-            let major_device_class = (class >> 8) & 0x1f;
-            if major_device_class == 0x01 {
-                return true;
-            }
-        }
-
+        let icon = device.icon().await.ok().flatten();
+        let class = device.class().await.ok().flatten();
         let alias = device.alias().await.ok();
         let name = device.name().await.ok().flatten();
+
+        let icon_is_computer = icon.as_deref() == Some("computer");
+        let major_device_class = class.map(|value| (value >> 8) & 0x1f);
+        let class_is_computer = major_device_class == Some(0x01);
+
         let looks_like_mac_name = [alias.as_deref(), name.as_deref()]
             .into_iter()
             .flatten()
@@ -1579,7 +1607,14 @@ impl BluetoothDaemon {
                     || lower.contains("imac")
                     || lower.contains("nocturne connector")
             });
-        looks_like_mac_name
+        let looks_like_computer = icon_is_computer || class_is_computer || looks_like_mac_name;
+
+        info!(
+            "Bluetooth device {} classification: icon={:?}, class={:?}, alias={:?}, name={:?}, computer={}",
+            address, icon, class, alias, name, looks_like_computer
+        );
+
+        looks_like_computer
     }
 
     async fn probe_macos_connector(

@@ -804,6 +804,27 @@ impl WebSocketServer {
                                         .unwrap_or("Unknown Device")
                                         .to_string();
 
+                                    let icon = device_props
+                                        .get("Icon")
+                                        .and_then(|v| v.0.as_str())
+                                        .map(|value| value.to_string());
+
+                                    let class =
+                                        device_props.get("Class").and_then(|v| v.0.as_u64());
+
+                                    let class_is_computer = class
+                                        .map(|value| ((value >> 8) & 0x1f) == 0x01)
+                                        .unwrap_or(false);
+                                    let name_lower = name.to_ascii_lowercase();
+                                    let looks_like_macos_connector = icon.as_deref()
+                                        == Some("computer")
+                                        || class_is_computer
+                                        || name_lower.contains("macbook")
+                                        || name_lower.contains("mac mini")
+                                        || name_lower.contains("mac studio")
+                                        || name_lower.contains("imac")
+                                        || name_lower.contains("nocturne connector");
+
                                     let paired = device_props
                                         .get("Paired")
                                         .and_then(|v| v.0.as_u64())
@@ -829,15 +850,38 @@ impl WebSocketServer {
                                         .unwrap_or(false);
 
                                     if paired {
-                                        devices.push(serde_json::json!({
+                                        let mut payload = serde_json::json!({
                                             "address": address,
                                             "blocked": blocked,
                                             "default": trusted,
                                             "connected": connected,
                                             "device_info": {
-                                                "name": name
+                                                "name": name,
+                                                "icon": icon,
+                                                "class": class
                                             }
-                                        }));
+                                        });
+
+                                        if looks_like_macos_connector {
+                                            if let Some(object) = payload.as_object_mut() {
+                                                object.insert(
+                                                    "device_type".to_string(),
+                                                    serde_json::json!("macos_connector"),
+                                                );
+                                                object.insert(
+                                                    "connection_type".to_string(),
+                                                    serde_json::json!("macos_connector"),
+                                                );
+                                                object.insert(
+                                                    "channel".to_string(),
+                                                    serde_json::json!(
+                                                        crate::bluetooth::BluetoothDaemon::MACOS_CONNECTOR_PROBE_CHANNEL
+                                                    ),
+                                                );
+                                            }
+                                        }
+
+                                        devices.push(payload);
                                     }
                                 }
                             }
